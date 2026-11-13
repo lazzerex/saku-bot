@@ -1,0 +1,14 @@
+{
+  "sources": {"blog": true, "news": true, "youtube": true, "tiktok": true, "x": true, "instagram": true},
+  "ping_role_id": "",
+  "member_pings": {"山﨑天": []},
+  "max_posts_per_run": 5,
+  "schedule_digest": {"enabled": true, "hour_jst": 8},
+  "rsshub_base": "https://rsshub.app",
+  "youtube_handles": {"music": "sakurazaka46SMEJ", "variety": "sakurazakachannel"},
+  "site": {
+    "blog": "/s/s46/diary/blog/list?ima=0000",
+    "news": "/s/s46/news/list?ima=0000&dy={ym}",
+    "schedule": "/s/s46/media/list?ima=0000&dy={ymd}"
+  }
+}
