@@ -2,10 +2,10 @@
  "digest_date": "2026-11-13",
  "fails": {
   "blog": 0,
-  "instagram": 1,
+  "instagram": 2,
   "news": 0,
-  "tiktok": 1,
-  "x": 1,
+  "tiktok": 2,
+  "x": 2,
   "youtube": 0
  },
  "heartbeat": "2026-11",
@@ -80,7 +80,8 @@
    "yt:video:06BmUDb8Ucg",
    "yt:video:NvtjiIt3YhI",
    "yt:video:wLSfB-iNzn8",
-   "yt:video:vCkRw_P30X8"
+   "yt:video:vCkRw_P30X8",
+   "yt:video:VYi3qBxcyYE"
   ]
  },
  "yt_ids": {
