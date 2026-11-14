@@ -2,11 +2,11 @@
  "digest_date": "2026-11-14",
  "fails": {
   "blog": 0,
-  "instagram": 3,
+  "instagram": 4,
   "news": 0,
-  "tiktok": 3,
-  "x": 3,
-  "youtube": 0
+  "tiktok": 4,
+  "x": 4,
+  "youtube": 1
  },
  "heartbeat": "2026-11",
  "seen": {
@@ -22,7 +22,8 @@
    "71776",
    "71775",
    "71749",
-   "71741"
+   "71741",
+   "71802"
   ],
   "news": [
    "E00705",
@@ -58,7 +59,8 @@
    "G00241",
    "M02220",
    "M02219",
-   "M02218"
+   "M02218",
+   "M02236"
   ],
   "youtube": [
    "yt:video:NQFEIitaaX8",
