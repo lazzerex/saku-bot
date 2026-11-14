@@ -1,6 +1,23 @@
+<div align="center">
+
 # SakuBot
 
-SakuBot watches Sakurazaka46's official channels and posts anything new to a Discord channel through a webhook. It runs entirely on GitHub Actions, so there is no server to host and nothing to install.
+**Sakurazaka46 blogs, news and videos in a Discord channel.**
+
+Checks the official site and YouTube every 10 minutes or so and posts what's new through a webhook.<br>
+Runs on GitHub Actions, so there is nothing to host.
+
+[![Poll](https://img.shields.io/github/actions/workflow/status/lazzerex/sakubot/poll.yml?style=flat-square&label=poll)](https://github.com/lazzerex/sakubot/actions/workflows/poll.yml) [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/) [![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)](https://github.com/lazzerex/sakubot/actions) [![Discord Webhook](https://img.shields.io/badge/Discord-Webhook-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.com/developers/docs/resources/webhook) [![Last commit](https://img.shields.io/github/last-commit/lazzerex/sakubot?style=flat-square)](https://github.com/lazzerex/sakubot/commits)
+
+Blogs · News · Tickets · Fan Club · YouTube · Daily Schedule
+
+[What it posts](#what-it-posts) · [How it works](#how-it-works) · [Setup](#setup) · [Configuration](#configuration) · [Testing](#testing) · [Troubleshooting](#troubleshooting) · [Limitations](#limitations)
+
+</div>
+
+---
+
+SakuBot polls the official Sakurazaka46 site, YouTube and the fan club news page on a schedule, and sends anything new to a Discord channel. It runs on GitHub Actions, so there is no server to set up.
 
 > Unofficial fan project. It is not affiliated with or endorsed by Sakurazaka46 or its management.
 
@@ -13,7 +30,7 @@ SakuBot watches Sakurazaka46's official channels and posts anything new to a Dis
 | Tickets | Official site, ticket list (lotteries, presales, sales) | On | Good |
 | Fan club news | Official site, FC NEWS list (headline and link only) | On | Good |
 | Daily schedule | Official site, schedule page | On | Good |
-| YouTube | RSS for @sakurazaka46SMEJ and @sakurazakachannel | On | Good |
+| YouTube | RSS for @sakurazaka46SMEJ and @sakurazakachannel, with the official site's VIDEO page as a fallback | On | Good |
 | TikTok, X, Instagram | Public RSSHub instance | Off | Unreliable |
 
 Blog posts show the member, date, title and an excerpt. News, ticket and fan club items show their category and date. Fan club posts may need a login to read in full, so SakuBot only posts the headline and a link. Once a day, SakuBot also posts that day's schedule (TV, radio, magazines, events).
@@ -111,6 +128,7 @@ state/seen.json              IDs already posted
 |---|---|
 | Nothing is posted | Check the Actions log. A `FAILED` line shows the error. |
 | `0 blog posts found` (or news, ticket, fcnews) | The official site changed its layout and the parser needs updating. |
+| YouTube shows `404` in the log | YouTube's feed sometimes rejects GitHub's servers. SakuBot falls back to the official site's VIDEO page automatically, so posts still arrive. |
 | TikTok, X or Instagram never post | They are off by default. The public RSSHub instance blocks most requests, and TikTok needs a headless browser to work at all. |
 | Posts stop after a long time | GitHub pauses scheduled workflows in inactive repos. SakuBot makes a small monthly commit to avoid this, but check the Actions tab occasionally. |
 
