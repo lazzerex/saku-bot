@@ -216,22 +216,38 @@ def maybe_digest(state):
 
 
 # ---- YouTube / social ------------------------------------------------------
+def get_retry(url, tries=3, wait=4):
+    """YouTube's RSS endpoint sometimes returns a temporary 404/5xx, so retry before giving up."""
+    for n in range(tries):
+        try:
+            return get(url)
+        except requests.HTTPError as ex:
+            code = ex.response.status_code if ex.response is not None else 0
+            if n == tries - 1 or code not in (404, 429, 500, 502, 503, 504):
+                raise
+            time.sleep(wait * (n + 1))
+
+
 def fetch_youtube(state):
     ids = state.setdefault("yt_ids", {})
-    out = []
+    out, errors = [], []
     for label, handle in CFG["youtube_handles"].items():
-        if handle not in ids:
-            html = get(f"https://www.youtube.com/@{handle}")
-            m = re.search(r'"channelId":"(UC[\w-]{22})"', html) or re.search(r"channel_id=(UC[\w-]{22})", html)
-            if not m:
-                raise RuntimeError(f"channel id not found for @{handle}")
-            ids[handle] = m.group(1)
-        feed = feedparser.parse(get(f"https://www.youtube.com/feeds/videos.xml?channel_id={ids[handle]}"))
-        for e in feed.entries[:10]:
-            th = e.media_thumbnail[0]["url"] if e.get("media_thumbnail") else None
-            out.append(item("youtube", e.id, f"[{label}] {e.title}", e.link, e.title, th))
+        try:  # one failing channel should not hide the other
+            if handle not in ids:
+                html = get(f"https://www.youtube.com/@{handle}")
+                m = re.search(r'"channelId":"(UC[\w-]{22})"', html) or re.search(r"channel_id=(UC[\w-]{22})", html)
+                if not m:
+                    raise RuntimeError(f"channel id not found for @{handle}")
+                ids[handle] = m.group(1)
+            feed = feedparser.parse(get_retry(f"https://www.youtube.com/feeds/videos.xml?channel_id={ids[handle]}"))
+            for e in feed.entries[:10]:
+                th = e.media_thumbnail[0]["url"] if e.get("media_thumbnail") else None
+                out.append(item("youtube", e.id, f"[{label}] {e.title}", e.link, e.title, th))
+        except Exception as ex:
+            errors.append(f"{label}: {ex}")
+            print(f"[youtube] {label} failed: {ex}")
     if not out:
-        raise RuntimeError("no videos returned")
+        raise RuntimeError("; ".join(errors)[:150] or "no videos returned")
     return out
 
 
