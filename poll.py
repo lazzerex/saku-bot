@@ -228,7 +228,33 @@ def get_retry(url, tries=3, wait=4):
             time.sleep(wait * (n + 1))
 
 
-def fetch_youtube(state):
+VIDEO_RE = re.compile(r"^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\s+UP\s+(.+)$", re.S)
+
+
+def fetch_site_videos():
+    """Official site VIDEO page: lists the latest uploads of both YouTube channels (the page uses the YouTube ID)."""
+    soup = BeautifulSoup(get(BASE + CFG["site"]["video"]), "html.parser")
+    heading = re.compile(r"櫻坂チャンネル|OFFICIAL YouTube CHANNEL")
+    out = {}
+    for a in soup.select('a[href*="/contents/"]'):
+        m_id = re.search(r"/contents/([\w-]{11})(?:[?#]|$)", a["href"])
+        if not m_id or m_id.group(1) in out:
+            continue
+        flat = " ".join(a.get_text(" ", strip=True).split())
+        m = VIDEO_RE.match(flat)
+        title = m.group(4) if m else flat
+        sect = a.find_previous(string=heading)
+        label = "variety" if sect and "チャンネル" in sect else "music"
+        vid = m_id.group(1)
+        out[vid] = item("youtube", f"yt:video:{vid}", f"[{label}] {title}",
+                        f"https://www.youtube.com/watch?v={vid}", title,
+                        f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg")
+    if not out:
+        raise RuntimeError("0 videos found on the site video page")
+    return list(out.values())
+
+
+def fetch_youtube_rss(state):
     ids = state.setdefault("yt_ids", {})
     out, errors = [], []
     for label, handle in CFG["youtube_handles"].items():
@@ -245,7 +271,22 @@ def fetch_youtube(state):
                 out.append(item("youtube", e.id, f"[{label}] {e.title}", e.link, e.title, th))
         except Exception as ex:
             errors.append(f"{label}: {ex}")
-            print(f"[youtube] {label} failed: {ex}")
+            print(f"[youtube] RSS {label} failed: {ex}")
+    return out, errors
+
+
+def fetch_youtube(state):
+    """YouTube RSS first, plus the official site's video page as a fallback. Both use the same ID format, so nothing posts twice."""
+    out, errors = fetch_youtube_rss(state)
+    seen_ids = {i["id"] for i in out}
+    try:
+        for i in fetch_site_videos():
+            if i["id"] not in seen_ids:
+                out.append(i)
+                seen_ids.add(i["id"])
+    except Exception as ex:
+        errors.append(f"site: {ex}")
+        print(f"[youtube] site fallback failed: {ex}")
     if not out:
         raise RuntimeError("; ".join(errors)[:150] or "no videos returned")
     return out
