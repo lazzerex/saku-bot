@@ -2,11 +2,13 @@
  "digest_date": "2026-11-14",
  "fails": {
   "blog": 0,
+  "fcnews": 0,
   "instagram": 4,
   "news": 0,
+  "ticket": 0,
   "tiktok": 4,
   "x": 4,
-  "youtube": 1
+  "youtube": 2
  },
  "heartbeat": "2026-11",
  "seen": {
@@ -23,7 +25,24 @@
    "71775",
    "71749",
    "71741",
-   "71802"
+   "71802",
+   "71803"
+  ],
+  "fcnews": [
+   "F02491",
+   "F02486",
+   "F02489",
+   "F02490",
+   "F02488",
+   "F02481",
+   "F02485",
+   "F02484",
+   "F02483",
+   "F02482",
+   "F02480",
+   "F02477",
+   "F02468",
+   "F02479"
   ],
   "news": [
    "E00705",
@@ -61,6 +80,28 @@
    "M02219",
    "M02218",
    "M02236"
+  ],
+  "ticket": [
+   "16thSG_backslive",
+   "6thYearAnniv",
+   "15thSG_backslive_fc2",
+   "sakurameets_fes4",
+   "15thSG_backslive",
+   "nationaltour2026_no2",
+   "nationaltour2026",
+   "4th_generation_fc2",
+   "4th_generation",
+   "14thSG_backslive",
+   "5thYearAnniv_fc3",
+   "5thYearAnniv_fc2",
+   "5thYearAnniv",
+   "shinzanmono_4th_fcg",
+   "lawson50th_fcticket",
+   "13thSG_backslive",
+   "buddies_2025ex",
+   "shinzanmono_4th_fc",
+   "sakurameets_no3",
+   "12thSG_backslive"
   ],
   "youtube": [
    "yt:video:NQFEIitaaX8",
