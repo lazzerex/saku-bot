@@ -25,7 +25,8 @@ S = requests.Session()
 S.headers["User-Agent"] = "Mozilla/5.0 (compatible; S46FeedBot/1.0)"
 
 LABEL = {"blog": "📝 Member blog", "news": "📰 Official news", "youtube": "▶️ YouTube",
-         "tiktok": "🎵 TikTok", "x": "𝕏 Post", "instagram": "📸 Instagram"}
+         "tiktok": "🎵 TikTok", "x": "𝕏 Post", "instagram": "📸 Instagram",
+         "ticket": "🎫 Ticket", "fcnews": "💗 Fan club"}
 BIG_IMAGE = {"youtube", "tiktok", "x", "instagram"}
 HUB = {"tiktok": ["/tiktok/user/@sakurazaka46.officialtk"],
        "x": ["/twitter/user/sakurazaka46"],
@@ -107,25 +108,53 @@ def fetch_blog():
     return list(out.values())
 
 
-def fetch_news():
+def fetch_month_list(kind, frag, id_re):
+    """News-style lists: 'category YYYY.MM.DD title', one page per month (dy=YYYYMM)."""
     t = now()
     months = [t.strftime("%Y%m")]
     if t.day <= 3:  # early in the month the list may still be empty
         months.append((t.replace(day=1) - dt.timedelta(days=1)).strftime("%Y%m"))
     out = {}
     for ym in months:
-        soup = BeautifulSoup(get(BASE + CFG["site"]["news"].format(ym=ym)), "html.parser")
-        for a in soup.select('a[href*="/news/detail/"]'):
-            m_id = re.search(r"/news/detail/([A-Za-z0-9]+)", a["href"])
+        soup = BeautifulSoup(get(BASE + CFG["site"][kind].format(ym=ym)), "html.parser")
+        for a in soup.select(f'a[href*="{frag}"]'):
+            m_id = re.search(id_re, a["href"])
             if not m_id or m_id.group(1) in out:
                 continue
             flat = " ".join(a.get_text(" ", strip=True).split())
             m = NEWS_RE.match(flat)
             cat, date, title = (m["cat"], m["date"], m["title"]) if m else (None, None, flat)
-            out[m_id.group(1)] = item("news", m_id.group(1), title, urljoin(BASE, a["href"]),
+            out[m_id.group(1)] = item(kind, m_id.group(1), title, urljoin(BASE, a["href"]),
                                       tag=" · ".join(x for x in (cat, date) if x))
     if not out:
-        raise RuntimeError("0 news items found; page layout may have changed")
+        raise RuntimeError(f"0 {kind} items found; page layout may have changed")
+    return list(out.values())
+
+
+def fetch_news():
+    return fetch_month_list("news", "/news/detail/", r"/news/detail/([A-Za-z0-9]+)")
+
+
+def fetch_fcnews():
+    return fetch_month_list("fcnews", "/group/detail/", r"/group/detail/([A-Za-z0-9]+)")
+
+
+TICKET_RE = re.compile(r"^(?P<date>\d{4}\.\d{2}\.\d{2})\s*(?P<title>.+)$", re.S)
+
+
+def fetch_ticket():
+    soup = BeautifulSoup(get(BASE + CFG["site"]["ticket"]), "html.parser")
+    out = {}
+    for a in soup.select('a[href*="/ticket/detail/"]'):
+        m_id = re.search(r"/ticket/detail/([^/?#]+)", a["href"])
+        if not m_id or m_id.group(1) in out:
+            continue
+        flat = " ".join(a.get_text(" ", strip=True).split())
+        m = TICKET_RE.match(flat)
+        date, title = (m["date"], m["title"]) if m else (None, flat)
+        out[m_id.group(1)] = item("ticket", m_id.group(1), title, urljoin(BASE, a["href"]), tag=date)
+    if not out:
+        raise RuntimeError("0 ticket items found; page layout may have changed")
     return list(out.values())
 
 
@@ -230,6 +259,10 @@ def fetch(src, state):
         return fetch_blog()
     if src == "news":
         return fetch_news()
+    if src == "fcnews":
+        return fetch_fcnews()
+    if src == "ticket":
+        return fetch_ticket()
     if src == "youtube":
         return fetch_youtube(state)
     return fetch_hub(src)
@@ -292,7 +325,7 @@ def main():
         except Exception as ex:
             fails[src] = fails.get(src, 0) + 1
             print(f"[{src}] FAILED ({fails[src]}): {ex}")
-            if fails[src] == WARN_AFTER:
+            if fails[src] == WARN_AFTER and src not in CFG.get("quiet_sources", []):
                 try:
                     send(os.environ["DISCORD_WEBHOOK_URL"],
                          f"⚠️ **{src}** has failed {WARN_AFTER} runs in a row: {str(ex)[:150]}")
