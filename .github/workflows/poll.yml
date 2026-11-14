@@ -24,6 +24,8 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           WEBHOOK_BLOG: ${{ secrets.WEBHOOK_BLOG }}
           WEBHOOK_NEWS: ${{ secrets.WEBHOOK_NEWS }}
+          WEBHOOK_TICKET: ${{ secrets.WEBHOOK_TICKET }}
+          WEBHOOK_FCNEWS: ${{ secrets.WEBHOOK_FCNEWS }}
           WEBHOOK_YOUTUBE: ${{ secrets.WEBHOOK_YOUTUBE }}
           WEBHOOK_TIKTOK: ${{ secrets.WEBHOOK_TIKTOK }}
           WEBHOOK_X: ${{ secrets.WEBHOOK_X }}
