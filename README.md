@@ -6,21 +6,23 @@ SakuBot watches Sakurazaka46's official channels and posts anything new to a Dis
 
 ## What it posts
 
-| Source | Where it comes from | Reliability |
-|---|---|---|
-| Member blogs | Official site, blog list | Good |
-| News | Official site, news list (current month) | Good |
-| Daily schedule | Official site, schedule page | Good |
-| YouTube | RSS for @sakurazaka46SMEJ and @sakurazakachannel | Good |
-| TikTok, X, Instagram | Public RSSHub instance | Best effort |
+| Source | Where it comes from | Default | Reliability |
+|---|---|---|---|
+| Member blogs | Official site, blog list | On | Good |
+| News | Official site, news list (current month) | On | Good |
+| Tickets | Official site, ticket list (lotteries, presales, sales) | On | Good |
+| Fan club news | Official site, FC NEWS list (headline and link only) | On | Good |
+| Daily schedule | Official site, schedule page | On | Good |
+| YouTube | RSS for @sakurazaka46SMEJ and @sakurazakachannel | On | Good |
+| TikTok, X, Instagram | Public RSSHub instance | Off | Unreliable |
 
-Blog posts show the member, date, title and an excerpt. News items show their category and date. Once a day, SakuBot also posts that day's schedule (TV, radio, magazines, events).
+Blog posts show the member, date, title and an excerpt. News, ticket and fan club items show their category and date. Fan club posts may need a login to read in full, so SakuBot only posts the headline and a link. Once a day, SakuBot also posts that day's schedule (TV, radio, magazines, events).
 
 ## How it works
 
 A scheduled GitHub Actions job runs `poll.py` about every 10 minutes. The script fetches each source, compares the results with the IDs it has already seen, and sends anything new to Discord. The list of seen IDs is stored in `state/seen.json` and committed back to the repo after each run.
 
-On the very first run, SakuBot only records what already exists, so your channel is not flooded with old posts.
+The first time a source is seen, SakuBot only records what already exists, so your channel is not flooded with old posts. This also applies to any source you turn on later.
 
 New posts usually appear 10 to 20 minutes after they go up. GitHub's scheduler can run late, so this is not instant.
 
@@ -41,7 +43,7 @@ Go to **Settings > Secrets and variables > Actions > New repository secret** and
 Never commit the webhook URL to a file.
 
 ### 4. Run it
-Open the **Actions** tab, enable workflows if prompted, select **SakuBot poll**, and click **Run workflow**. Check the log for lines like `[blog] seeded 11 items`. After that it runs on its own.
+Open the **Actions** tab, enable workflows if prompted, select **SakuBot poll**, and click **Run workflow**. Check the log for lines like `[blog] seeded 12 items`. After that it runs on its own.
 
 If the "Save state" step fails with a permissions error, set **Settings > Actions > General > Workflow permissions** to *Read and write*.
 
@@ -51,7 +53,8 @@ Edit `config.json` in the repository.
 
 | Key | Description |
 |---|---|
-| `sources` | Turn individual sources on or off. |
+| `sources` | Turn individual sources on or off: `blog`, `news`, `ticket`, `fcnews`, `youtube`, `tiktok`, `x`, `instagram`. |
+| `quiet_sources` | Sources that never trigger the "failed 12 runs in a row" warning. Defaults to TikTok, X and Instagram. |
 | `schedule_digest` | `enabled` and `hour_jst`. The digest posts on the first run after that hour (Japan time). |
 | `ping_role_id` | A Discord role ID to ping on every post. Leave blank for none. |
 | `member_pings` | Ping specific users when a member posts a blog, e.g. `{"山﨑天": ["123456789012345678"]}`. Names can be in kanji or the romaji aliases listed in `poll.py`. |
@@ -59,19 +62,25 @@ Edit `config.json` in the repository.
 | `youtube_handles` | YouTube channels to follow. |
 | `rsshub_base` | RSSHub instance used for TikTok, X and Instagram. |
 
-To send a source to its own channel, add a repository secret named `WEBHOOK_BLOG`, `WEBHOOK_NEWS`, `WEBHOOK_YOUTUBE`, `WEBHOOK_TIKTOK`, `WEBHOOK_X`, `WEBHOOK_INSTAGRAM` or `WEBHOOK_SCHEDULE`. Anything without its own webhook uses `DISCORD_WEBHOOK_URL`.
+To send a source to its own channel, add a repository secret named `WEBHOOK_BLOG`, `WEBHOOK_NEWS`, `WEBHOOK_TICKET`, `WEBHOOK_FCNEWS`, `WEBHOOK_YOUTUBE`, `WEBHOOK_TIKTOK`, `WEBHOOK_X`, `WEBHOOK_INSTAGRAM` or `WEBHOOK_SCHEDULE`. Anything without its own webhook uses `DISCORD_WEBHOOK_URL`.
 
 To use a different RSSHub instance without editing code, add a repository variable named `RSSHUB_BASE`.
 
 ## Testing
 
-Check the webhook itself:
+Check the webhook itself. On macOS or Linux:
 
 ```
 curl -H "Content-Type: application/json" -d '{"content":"SakuBot test"}' YOUR_WEBHOOK_URL
 ```
 
-Check posting: open `state/seen.json`, delete two or three IDs from the `blog` or `news` list, commit, then run the workflow again. Those items should be posted.
+On Windows Command Prompt, use double quotes and escape the inner ones:
+
+```
+curl -H "Content-Type: application/json" -d "{\"content\":\"SakuBot test\"}" YOUR_WEBHOOK_URL
+```
+
+Check posting: open `state/seen.json`, delete two or three IDs from the `blog`, `news` or `ticket` list, commit, then run the workflow again. Those items should be posted.
 
 Check member pings: add your Discord user ID to `member_pings` (enable Developer Mode in Discord, then right-click yourself and choose Copy User ID), remove one of that member's posts from `seen.json`, and run the workflow.
 
@@ -101,11 +110,11 @@ state/seen.json              IDs already posted
 | Symptom | Likely cause |
 |---|---|
 | Nothing is posted | Check the Actions log. A `FAILED` line shows the error. |
-| `0 blog posts found` or `0 news items found` | The official site changed its layout and the parser needs updating. |
-| TikTok, X or Instagram never post | The public RSSHub instance is rate-limited or blocked. Self-host one or leave these sources off. |
+| `0 blog posts found` (or news, ticket, fcnews) | The official site changed its layout and the parser needs updating. |
+| TikTok, X or Instagram never post | They are off by default. The public RSSHub instance blocks most requests, and TikTok needs a headless browser to work at all. |
 | Posts stop after a long time | GitHub pauses scheduled workflows in inactive repos. SakuBot makes a small monthly commit to avoid this, but check the Actions tab occasionally. |
 
-If a source fails 12 runs in a row, SakuBot posts a warning to Discord.
+If an enabled source (other than those in `quiet_sources`) fails 12 runs in a row, SakuBot posts a warning to Discord.
 
 ## Limitations
 
