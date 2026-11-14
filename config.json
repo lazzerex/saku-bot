@@ -28,7 +28,8 @@
     "news": "/s/s46/news/list?ima=0000&dy={ym}",
     "schedule": "/s/s46/media/list?ima=0000&dy={ymd}",
     "ticket": "/s/s46/ticket/list?ima=0000&ct=ticket&so=NW",
-    "fcnews": "/s/s46/group/list?ima=0000&dy={ym}"
+    "fcnews": "/s/s46/group/list?ima=0000&dy={ym}",
+    "video": "/s/s46/contents_list?ima=0000&cd=132"
   },
   "quiet_sources": [
     "tiktok",
