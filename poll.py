@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 
 import feedparser
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment, NavigableString
 
 ROOT = Path(__file__).parent
 CFG = json.loads((ROOT / "config.json").read_text("utf-8"))
@@ -19,6 +19,7 @@ RSSHUB = (os.environ.get("RSSHUB_BASE") or CFG["rsshub_base"]).rstrip("/")
 TIMEOUT = 20
 KEEP = 300          # remembered ids per source
 WARN_AFTER = 12     # consecutive failed runs before a warning (~2h at 10 min)
+RUN_BUDGET = int(CFG.get("run_budget_seconds", 240))  # stop posting after this; leftovers go out next run
 JST = dt.timezone(dt.timedelta(hours=9))
 
 S = requests.Session()
@@ -73,7 +74,8 @@ def get(url):
 
 def item(src, id_, title, url, text=None, thumb=None, author=None, desc=None, tag=None):
     return {"source": src, "id": id_, "title": title[:256], "url": url, "text": text or title,
-            "thumb": thumb, "author": author, "desc": desc, "tag": tag}
+            "thumb": thumb, "author": author, "desc": desc, "tag": tag,
+            "title_raw": None, "preview": desc, "fields": [], "icon": None, "ts": None, "tr": {}, "images": []}
 
 
 # ---- Official site ---------------------------------------------------------
@@ -103,6 +105,7 @@ def fetch_blog():
             "blog", m_id.group(1), f"{name}: {title}", urljoin(BASE, a["href"]), name, 
             urljoin(BASE, img["src"]) if img and img.get("src") else None,
             author=name, desc=desc[:200], tag=m.group(1))
+        out[m_id.group(1)]["title_raw"] = title
     if not out:
         raise RuntimeError("0 blog posts found; page layout may have changed")
     return list(out.values())
@@ -325,15 +328,237 @@ def fetch(src, state):
     return fetch_hub(src)
 
 
+# ---- Translation (free machine translation) --------------------------------
+TR = CFG.get("translate", {})
+PREVIEW = int(CFG.get("preview_chars", 300))
+_ROMAJI_REV = {}
+for _r, _k in ROMAJI.items():
+    _ROMAJI_REV[_k] = _r
+    _ROMAJI_REV[_k.replace("﨑", "崎")] = _r
+_tr = {"ok": 0, "fail": 0, "streak": 0, "calls": 0}
+
+
+def prep_jp(text):
+    """Protect names and the group name before machine translation."""
+    for kanji, romaji in _ROMAJI_REV.items():
+        text = text.replace(kanji, f" {romaji} ")
+    return text.replace("櫻坂46", "Sakurazaka46").replace("櫻坂", "Sakurazaka")
+
+
+def _google(text, tgt):
+    from deep_translator import GoogleTranslator
+    return GoogleTranslator(source="ja", target=tgt).translate(text)
+
+
+def _mymemory(text, tgt):
+    from deep_translator import MyMemoryTranslator
+    return MyMemoryTranslator(source="ja-JP", target={"en": "en-GB", "vi": "vi-VN"}[tgt]).translate(text)
+
+
+def translate(text, tgt):
+    text = (text or "").strip()
+    if not text or _tr["streak"] >= 3 or _tr["calls"] >= int(TR.get("max_calls_per_run", 24)):
+        return None
+    _tr["calls"] += 1
+    src_text = prep_jp(text)[:int(TR.get("max_chars", 400))]  # MyMemory accepts ~500 chars
+    for fn in (_google, _mymemory):
+        try:
+            out = fn(src_text, tgt)
+            if out and out.strip():
+                _tr["ok"] += 1
+                _tr["streak"] = 0
+                time.sleep(0.4)
+                return " ".join(out.split())
+        except Exception as ex:
+            print(f"[translate] {fn.__name__} {tgt} failed: {str(ex)[:80]}")
+    _tr["fail"] += 1
+    _tr["streak"] += 1
+    return None
+
+
+def add_translations(i):
+    if not TR.get("enabled") or i["source"] not in TR.get("sources", []):
+        return
+    for lg in TR.get("languages", ["en", "vi"]):
+        t = translate(i.get("title_raw") or i["title"], lg)
+        pv = translate(i["preview"], lg) if i.get("preview") else None
+        if t or pv:
+            i["tr"][lg] = (t, pv)
+
+
+# ---- Detail pages: preview, member photo, ticket dates ----------------------
+WD = {"月": "Mon", "火": "Tue", "水": "Wed", "木": "Thu", "金": "Fri", "土": "Sat", "日": "Sun", "祝": "Hol"}
+GLOSS = [("夕方以降", " evening or later"), ("オフィシャル先行", "Official presale"), ("イオンカード先行", "AEON Card presale"),
+         ("ファンクラブ抽選先行", "FC lottery presale"), ("Leminoスペシャルシート", "Lemino Special Seat"),
+         ("全席指定", "Reserved seats"), ("親子・女性エリア", "Parent-child / women's area")]
+SECTIONS = [("日程", "📅 Dates · Ngày"), ("会場", "📍 Venue · Địa điểm"), ("料金", "💴 Price · Giá vé"),
+            ("受付期間", "📝 Application · Đăng ký"), ("先行受付スケジュール", "🎟 Presale · Bán trước"),
+            ("チケット一般発売", "🛒 General sale · Bán đại trà")]
+STOP_LINE = ("【", "※", "＜", "■", "―", "<", "●", "ファンクラブ", "受付URL", "以下")
+BODY_STOP = ("NEW ENTRY", "RECENT TICKET NEWS", "TICKET 一覧へ", "お申し込みは会員のみ")
+DATE_LINE = re.compile(r"^\d{4}\.\d{2}\.\d{2}$")
+
+
+def fmt_jp(text):
+    """Dates, times and prices are language neutral, so they are reformatted instead of machine translated."""
+    text = re.sub(r"(\d{4})年(\d{1,2})月(\d{1,2})日", lambda m: f"{m[1]}/{int(m[2]):02d}/{int(m[3]):02d}", text)
+    text = re.sub(r"(?<![\d/])(\d{1,2})月(\d{1,2})日", lambda m: f"{int(m[1]):02d}/{int(m[2]):02d}", text)
+    text = re.sub(r"[(（]([月火水木金土日祝][月火水木金土日祝･・]*)[)）]",
+                  lambda m: " (" + "/".join(WD[c] for c in re.findall("[月火水木金土日祝]", m[1])) + ")", text)
+    text = text.replace("開場", "doors ").replace("開演", "start ").replace("〜", " – ").replace("～", " – ")
+    text = re.sub(r"([\d,]+)円(?:[（(]税込[）)])?", lambda m: f"¥{m[1]}" + (" (tax incl.)" if "税込" in m[0] else ""), text)
+    for jp, en in GLOSS:
+        text = text.replace(jp, en)
+    text = re.sub(r"\)(\d)", r") \1", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text.rstrip("– ").strip()
+
+
+def body_lines(url, title):
+    soup = BeautifulSoup(get(url), "html.parser")
+    root = soup.body or soup
+    for t in root(["script", "style"]):
+        t.decompose()
+    lines = [x.strip() for x in root.get_text("\n").split("\n") if x.strip()]
+    key = norm(title)
+    start = next((n for n, x in enumerate(lines) if norm(x) == key), None)
+    if start is None:
+        start = next((n for n, x in enumerate(lines) if len(key) >= 12 and norm(x).startswith(key[:12])), None)
+    if start is None:
+        return []
+    out = []
+    for x in lines[start + 1:]:
+        if x.startswith(BODY_STOP):
+            break
+        out.append(x)
+    return out
+
+
+def preview_from(lines, limit):
+    out, n = [], 0
+    for x in lines:
+        if x.startswith(("―", "<", "＜", "【", "以下ご確認")) or DATE_LINE.match(x):
+            break
+        if x.startswith(("●", "※", "■")):
+            continue
+        out.append(x)
+        n += len(x)
+        if n >= limit:
+            break
+    return " ".join(out)[:limit]
+
+
+def extract_sections(lines):
+    found = {}
+    for n, x in enumerate(lines):
+        m = re.match(r"^【(.+?)】\s*(.*)$", x)
+        if not m or m.group(1) not in dict(SECTIONS) or m.group(1) in found:
+            continue
+        label, vals = m.group(1), ([m.group(2)] if m.group(2) else [])
+        stops = ("【", "※", "＜") if label == "料金" else STOP_LINE
+        for y in lines[n + 1:n + 6]:
+            if y.startswith(stops):
+                break
+            vals.append(y)
+            if label == "会場":
+                break
+        vals = [v for v in vals if v]
+        if vals:
+            found[label] = vals[:4]
+    return found
+
+
+def enrich_detail(i):
+    lines = body_lines(i["url"], i["title"])
+    if not lines:
+        return
+    i["preview"] = preview_from(lines, PREVIEW) or i["preview"]
+    sec = extract_sections(lines)
+    for jp, name in SECTIONS:
+        if jp in sec:
+            i["fields"].append((name, "\n".join(fmt_jp(v) for v in sec[jp])))
+    m = re.search(r"抽選結果の発表は、(.+?)を予定", "\n".join(lines))
+    if m:
+        i["fields"].append(("📣 Results · Kết quả", fmt_jp(m.group(1))))
+
+
+def member_photos(state, want):
+    cache = state.setdefault("member_photos", {})
+    today = now().strftime("%Y-%m-%d")
+    if want in cache or state.get("photos_day") == today:
+        return cache
+    state["photos_day"] = today
+    soup = BeautifulSoup(get(BASE + CFG["site"]["news"].format(ym=now().strftime("%Y%m"))), "html.parser")
+    for img in soup.select('img[src*="400_320_102400"]'):
+        name = img.find_next(string=lambda s: isinstance(s, str) and s.strip())
+        if name:
+            cache[norm(name.strip())] = urljoin(BASE, img["src"])
+    return cache
+
+
+def enrich_blog(i, state):
+    soup = BeautifulSoup(get(i["url"]), "html.parser")
+    key = norm(i["title_raw"] or "")
+    h1 = next((h for h in soup.find_all("h1") if key and key in norm(h.get_text())), None) or soup.find("h1")
+    texts, img, ts, images = [], None, None, []
+    for el in (h1.next_elements if h1 else []):
+        if isinstance(el, Comment):
+            continue
+        if isinstance(el, NavigableString):
+            if h1 is not None and el.find_parent("h1") is h1:
+                continue  # the heading itself
+            if el.parent is not None and el.parent.name in ("script", "style"):
+                continue
+            s = el.strip()
+            if not s:
+                continue
+            m = re.match(r"^(\d{4})/(\d{2})/(\d{2}) (\d{2}):(\d{2})$", s)
+            if m:
+                ts = dt.datetime(*map(int, m.groups()), tzinfo=JST).isoformat()
+                break
+            if s == "前へ":
+                break
+            if not texts and re.match(r"^[A-Z][A-Z .'\-]+$", s):  # romaji name line under the title
+                continue
+            texts.append(s)
+        elif getattr(el, "name", None) == "img":
+            raw = el.get("src") or el.get("data-src") or el.get("data-original") or ""
+            if "/files/14/diary/" in raw:  # post photos only, not the member profile picture
+                full = urljoin(BASE, raw)
+                if full not in images:
+                    images.append(full)
+                img = img or full
+    if texts:
+        i["preview"] = " ".join(texts)[:PREVIEW]
+    i["ts"] = ts or i["ts"]
+    i["images"] = images
+    if img:
+        i["thumb"] = img
+    if i.get("author"):
+        i["icon"] = member_photos(state, norm(i["author"])).get(norm(i["author"]))
+
+
+def enrich(i, state):
+    try:
+        if i["source"] == "blog":
+            enrich_blog(i, state)
+        elif i["source"] in ("news", "ticket"):
+            enrich_detail(i)
+    except Exception as ex:
+        print(f"[{i['source']}] enrich failed: {ex}")
+
+
 # ---- Discord ---------------------------------------------------------------
 def webhook_for(src):
     return os.environ.get(f"WEBHOOK_{src.upper()}") or os.environ.get("DISCORD_WEBHOOK_URL")
 
 
-def send(url, content, embed=None):
+def send(url, content, embed=None, embeds=None):
     body = {"username": "SakuBot", "content": content or None,
             "allowed_mentions": {"parse": ["users", "roles"]}}
-    if embed:
+    if embeds:
+        body["embeds"] = embeds
+    elif embed:
         body["embeds"] = [embed]
     for _ in range(3):
         r = S.post(url, json=body, timeout=TIMEOUT)
@@ -345,14 +570,98 @@ def send(url, content, embed=None):
     raise RuntimeError("rate limited")
 
 
+FLAG = {"en": "🇬🇧 English", "vi": "🇻🇳 Tiếng Việt"}
+
+
 def build_embed(i):
     label = LABEL[i["source"]] + (f" · {i['tag']}" if i.get("tag") else "")
-    e = {"title": i["title"] or "New post", "url": i["url"], "color": 0xF19DB5, "author": {"name": label}}
-    if i.get("desc"):
-        e["description"] = i["desc"]
+    e = {"title": (i["title"] or "New post")[:256], "url": i["url"], "color": 0xF19DB5,
+         "author": {"name": label[:256]}}
+    if i.get("icon"):
+        e["author"]["icon_url"] = i["icon"]
+    if i.get("preview"):
+        e["description"] = i["preview"][:1000]
+    fields = []
+    for lg, (t, pv) in i.get("tr", {}).items():
+        val = "\n".join(x for x in (f"**{t}**" if t else None, pv) if x)
+        fields.append({"name": FLAG[lg], "value": val[:1024], "inline": False})
+    fields += [{"name": n[:256], "value": v[:1024], "inline": False} for n, v in i.get("fields", [])]
+    size = len(e["title"]) + len(e.get("description", "")) + 100
+    kept = []
+    for f in fields[:25]:
+        size += len(f["name"]) + len(f["value"])
+        if size > 5500:
+            break
+        kept.append(f)
+    if kept:
+        e["fields"] = kept
     if i["thumb"]:
         e["image" if i["source"] in BIG_IMAGE else "thumbnail"] = {"url": i["thumb"]}
+    e["footer"] = {"text": "SakuBot" + (" · auto-translated" if i.get("tr") else "")}
+    e["timestamp"] = i.get("ts") or dt.datetime.now(dt.timezone.utc).isoformat()
     return e
+
+
+PH = CFG.get("photos", {})
+
+
+def send_photos(i):
+    """Photo-only posts for a new blog entry. Embeds that share a URL show up as one gallery (up to 4 images)."""
+    url = os.environ.get("WEBHOOK_PHOTOS")
+    imgs = i.get("images") or []
+    if not (PH.get("enabled") and url and imgs):
+        return 0
+    imgs = imgs[:int(PH.get("max_photos", 8))]
+    per = max(1, min(4, int(PH.get("per_message", 4))))
+    for n in range(0, len(imgs), per):
+        embeds = []
+        for k, src in enumerate(imgs[n:n + per]):
+            e = {"url": i["url"], "color": 0xF19DB5, "image": {"url": src}}
+            if n == 0 and k == 0:
+                e["title"] = f"📷 {i.get('title_raw') or i['title']}"[:256]
+                e["author"] = {"name": i.get("author") or "Member blog"}
+                if i.get("icon"):
+                    e["author"]["icon_url"] = i["icon"]
+                e["footer"] = {"text": f"SakuBot · {len(imgs)} photo(s)"}
+                e["timestamp"] = i.get("ts") or dt.datetime.now(dt.timezone.utc).isoformat()
+            embeds.append(e)
+        send(url, None, embeds=embeds)
+        time.sleep(1)
+    return len(imgs)
+
+
+def post_status(report, state):
+    """One status message in its own channel, edited in place after every run (no spam)."""
+    url = os.environ.get("WEBHOOK_STATUS")
+    if not url:
+        return
+    fields, bad = [], False
+    for src, r in report["src"].items():
+        if r.get("ok"):
+            val = f"{r['items']} items · {r['new']} new" + (f" · {r['posted']} sent" if r["new"] else "")
+            if r.get("seeded"):
+                val = f"seeded {r['items']} items"
+        else:
+            bad = True
+            val = f"failed ×{r['fails']}: {r['err']}"
+        fields.append({"name": ("✅ " if r.get("ok") else "⚠️ ") + src, "value": val[:200], "inline": True})
+    if PH.get("enabled") and os.environ.get("WEBHOOK_PHOTOS"):
+        fields.append({"name": "📷 Photos", "value": f"{report.get('photos', 0)} sent", "inline": True})
+    if TR.get("enabled"):
+        fields.append({"name": "🌐 Translation",
+                       "value": f"{_tr['ok']} ok · {_tr['fail']} failed" if _tr["calls"] else "idle", "inline": True})
+    embed = {"title": "SakuBot status", "color": 0xE67E22 if bad else 0x2ECC71, "fields": fields[:25],
+             "description": f"Last run <t:{int(time.time())}:R> · took {time.time() - report['t0']:.0f}s",
+             "timestamp": dt.datetime.now(dt.timezone.utc).isoformat()}
+    mid = state.get("status_msg")
+    if mid:
+        r = S.patch(f"{url}/messages/{mid}", json={"embeds": [embed]}, timeout=TIMEOUT)
+        if r.ok:
+            return
+    r = S.post(url + ("&" if "?" in url else "?") + "wait=true",
+               json={"username": "SakuBot", "embeds": [embed]}, timeout=TIMEOUT)
+    r.raise_for_status()
+    state["status_msg"] = r.json()["id"]
 
 
 def pings_for(i):
@@ -373,6 +682,7 @@ def main():
     state = json.loads(STATE_FILE.read_text("utf-8")) if STATE_FILE.exists() else {}
     seen, fails = state.setdefault("seen", {}), state.setdefault("fails", {})
     limit = int(CFG.get("max_posts_per_run", 5))
+    report = {"t0": time.time(), "src": {}}
 
     for src, enabled in CFG["sources"].items():
         if not enabled or not webhook_for(src):
@@ -381,6 +691,7 @@ def main():
             items = fetch(src, state)
         except Exception as ex:
             fails[src] = fails.get(src, 0) + 1
+            report["src"][src] = {"ok": False, "err": str(ex)[:100], "fails": fails[src]}
             print(f"[{src}] FAILED ({fails[src]}): {ex}")
             if fails[src] == WARN_AFTER and src not in CFG.get("quiet_sources", []):
                 try:
@@ -393,22 +704,40 @@ def main():
         known = seen.get(src)
         if known is None:  # first run: remember what exists, post nothing
             seen[src] = [i["id"] for i in items][:KEEP]
+            report["src"][src] = {"ok": True, "items": len(items), "new": 0, "posted": 0, "seeded": True}
             print(f"[{src}] seeded {len(items)} items")
             continue
         known_set = set(known)
         new = [i for i in items if i["id"] not in known_set]
         added = [i["id"] for i in new[limit:]]  # overflow is marked seen, not posted
+        posted = 0
         for i in reversed(new[:limit]):
+            if time.time() - report["t0"] > RUN_BUDGET:
+                print(f"[{src}] time budget reached, remaining posts wait for the next run")
+                break
             try:
+                enrich(i, state)
+                add_translations(i)
                 send(webhook_for(src), pings_for(i), build_embed(i))
                 added.append(i["id"])
+                posted += 1
                 time.sleep(1)
+                if src == "blog":
+                    try:
+                        report["photos"] = report.get("photos", 0) + send_photos(i)
+                    except Exception as ex:
+                        print(f"[photos] failed: {ex}")
             except Exception as ex:
                 print(f"[{src}] post failed, will retry next run: {ex}")
         seen[src] = (known + added)[-KEEP:]
+        report["src"][src] = {"ok": True, "items": len(items), "new": len(new), "posted": posted}
         print(f"[{src}] {len(new)} new")
 
     maybe_digest(state)
+    try:
+        post_status(report, state)
+    except Exception as ex:
+        print(f"[status] failed: {ex}")
     state["heartbeat"] = now().strftime("%Y-%m")  # monthly commit keeps the repo active
     STATE_FILE.parent.mkdir(exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=1, sort_keys=True), "utf-8")
