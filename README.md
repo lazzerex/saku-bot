@@ -47,17 +47,18 @@ New posts usually appear 10 to 20 minutes after they go up. GitHub's scheduler c
 
 Each post is a Discord embed. Besides the title and link it can include:
 
-- **Preview:** a short excerpt (300 characters by default) read from the post page. Blog previews come with the member's photo, the post time, and the first photo of the post as a small thumbnail (linked, not downloaded).
+- **Blog posts:** the member's name with romaji, her portrait in the corner, a short preview (100 characters by default, `blog_preview_chars`), the post time, and one photo from the post when there is one (linked, not downloaded).
+- **News and ticket posts:** a longer preview (300 characters by default, `preview_chars`).
 - **Ticket and news details:** dates, venue, prices, application period, presale schedule, general sale and result announcement dates, when the page lists them. Dates and prices are reformatted rather than machine translated, e.g. `2026/12/15 (Tue) doors 17:30/start 19:00`.
-- **Translation:** English and Vietnamese versions of the title and preview (see below).
+- **Translation:** English and Vietnamese versions of the title only (see below).
 
 ## Translation
 
-Titles and previews are translated with free machine translation (Google Translate through `deep-translator`, with MyMemory as a backup). No API key is needed. Posts carry an "auto-translated" footer.
+Titles are translated with free machine translation (Google Translate through `deep-translator`, with MyMemory as a backup). No API key is needed. Posts carry an "auto-translated" footer.
 
 - Quality is rough, especially for slang, jokes and names. Member names with a romaji alias in `poll.py` are protected; other names may be mistranslated.
 - The free services have limits and can block GitHub's servers. If translation fails, the post is sent in Japanese without it.
-- Only the title and a short preview are translated, never full blog posts.
+- Only the title is translated. Previews, dates and prices are not.
 - Change `translate.languages` or `translate.sources` in `config.json`, or set `translate.enabled` to `false` to turn it off.
 
 ## Status board
@@ -106,7 +107,8 @@ Edit `config.json` in the repository.
 | `ping_role_id` | A Discord role ID to ping on every post. Leave blank for none. |
 | `member_pings` | Ping specific users when a member posts a blog, e.g. `{"山﨑天": ["123456789012345678"]}`. Names can be in kanji or the romaji aliases listed in `poll.py`. |
 | `max_posts_per_run` | Maximum posts per source per run. Default 5. |
-| `preview_chars` | Length of the preview excerpt. Default 300. |
+| `blog_preview_chars` | Length of the blog preview. Default 100. |
+| `preview_chars` | Length of the news and ticket preview. Default 300. |
 | `photos` | `enabled`, `max_photos` and `per_message` for the photo feed. |
 | `translate` | `enabled`, `languages` (`en`, `vi`), `sources`, `max_chars` and `max_calls_per_run`. |
 | `youtube_handles` | YouTube channels to follow. |
