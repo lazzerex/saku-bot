@@ -11,7 +11,7 @@ concurrency:
 jobs:
   poll:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,6 +31,8 @@ jobs:
           WEBHOOK_X: ${{ secrets.WEBHOOK_X }}
           WEBHOOK_INSTAGRAM: ${{ secrets.WEBHOOK_INSTAGRAM }}
           WEBHOOK_SCHEDULE: ${{ secrets.WEBHOOK_SCHEDULE }}
+          WEBHOOK_STATUS: ${{ secrets.WEBHOOK_STATUS }}
+          WEBHOOK_PHOTOS: ${{ secrets.WEBHOOK_PHOTOS }}
           RSSHUB_BASE: ${{ vars.RSSHUB_BASE }}
       - name: Save state
         run: |
