@@ -7,7 +7,7 @@
 Checks the official site and YouTube every 10 minutes or so and posts what's new through a webhook.<br>
 Runs on GitHub Actions, so there is nothing to host.
 
-[![Poll](https://img.shields.io/github/actions/workflow/status/lazzerex/saku-bot/poll.yml?style=flat-square&label=poll)](https://github.com/lazzerex/saku-bot/actions/workflows/poll.yml) [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/) [![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)](https://github.com/lazzerex/saku-bot/actions) [![Discord Webhook](https://img.shields.io/badge/Discord-Webhook-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.com/developers/docs/resources/webhook) [![Last commit](https://img.shields.io/github/last-commit/lazzerex/saku-bot?style=flat-square)](https://github.com/lazzerex/saku-bot/commits)
+[![Poll](https://img.shields.io/github/actions/workflow/status/lazzerex/sakubot/poll.yml?style=flat-square&label=poll)](https://github.com/lazzerex/sakubot/actions/workflows/poll.yml) [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/) [![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)](https://github.com/lazzerex/sakubot/actions) [![Discord Webhook](https://img.shields.io/badge/Discord-Webhook-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.com/developers/docs/resources/webhook) [![Last commit](https://img.shields.io/github/last-commit/lazzerex/sakubot?style=flat-square)](https://github.com/lazzerex/sakubot/commits)
 
 Blogs · News · Tickets · Fan Club · YouTube · Daily Schedule
 
@@ -43,6 +43,36 @@ The first time a source is seen, SakuBot only records what already exists, so yo
 
 New posts usually appear 10 to 20 minutes after they go up. GitHub's scheduler can run late, so this is not instant.
 
+## Post details
+
+Each post is a Discord embed. Besides the title and link it can include:
+
+- **Preview:** a short excerpt (300 characters by default) read from the post page. Blog previews come with the member's photo, the post time, and the first photo of the post as a small thumbnail (linked, not downloaded).
+- **Ticket and news details:** dates, venue, prices, application period, presale schedule, general sale and result announcement dates, when the page lists them. Dates and prices are reformatted rather than machine translated, e.g. `2026/12/15 (Tue) doors 17:30/start 19:00`.
+- **Translation:** English and Vietnamese versions of the title and preview (see below).
+
+## Translation
+
+Titles and previews are translated with free machine translation (Google Translate through `deep-translator`, with MyMemory as a backup). No API key is needed. Posts carry an "auto-translated" footer.
+
+- Quality is rough, especially for slang, jokes and names. Member names with a romaji alias in `poll.py` are protected; other names may be mistranslated.
+- The free services have limits and can block GitHub's servers. If translation fails, the post is sent in Japanese without it.
+- Only the title and a short preview are translated, never full blog posts.
+- Change `translate.languages` or `translate.sources` in `config.json`, or set `translate.enabled` to `false` to turn it off.
+
+## Status board
+
+If you add a repository secret named `WEBHOOK_STATUS` (a webhook for a separate channel), SakuBot keeps one status message there and edits it after every run, so it never floods the channel. It shows each source's result (items found, new, sent, or the error), how long the run took, and how translation is doing. Without `WEBHOOK_STATUS` the board is skipped.
+
+## Photo feed
+
+When a member posts a blog entry with photos, SakuBot also sends the photos on their own to a separate channel: a gallery of up to 4 images per message, with the member's name and a link to the post. It reads the photos from the same blog page it already opened for the preview, so it adds no extra requests.
+
+- Add a repository secret named `WEBHOOK_PHOTOS` (a webhook for the photo channel). Without it, the photo feed is skipped, so photos never end up in your main channel by accident.
+- `photos.max_photos` (default 8) limits how many photos are sent per post, and `photos.per_message` (1 to 4) sets the gallery size.
+- Photos are linked from the official site, not downloaded or re-uploaded. If the site blocks Discord from loading them, the embed shows an empty box.
+- Only blog photos are covered for now. Profile pictures are skipped.
+
 ## Setup
 
 ### 1. Create a Discord webhook
@@ -76,10 +106,13 @@ Edit `config.json` in the repository.
 | `ping_role_id` | A Discord role ID to ping on every post. Leave blank for none. |
 | `member_pings` | Ping specific users when a member posts a blog, e.g. `{"山﨑天": ["123456789012345678"]}`. Names can be in kanji or the romaji aliases listed in `poll.py`. |
 | `max_posts_per_run` | Maximum posts per source per run. Default 5. |
+| `preview_chars` | Length of the preview excerpt. Default 300. |
+| `photos` | `enabled`, `max_photos` and `per_message` for the photo feed. |
+| `translate` | `enabled`, `languages` (`en`, `vi`), `sources`, `max_chars` and `max_calls_per_run`. |
 | `youtube_handles` | YouTube channels to follow. |
 | `rsshub_base` | RSSHub instance used for TikTok, X and Instagram. |
 
-To send a source to its own channel, add a repository secret named `WEBHOOK_BLOG`, `WEBHOOK_NEWS`, `WEBHOOK_TICKET`, `WEBHOOK_FCNEWS`, `WEBHOOK_YOUTUBE`, `WEBHOOK_TIKTOK`, `WEBHOOK_X`, `WEBHOOK_INSTAGRAM` or `WEBHOOK_SCHEDULE`. Anything without its own webhook uses `DISCORD_WEBHOOK_URL`.
+To send a source to its own channel, add a repository secret named `WEBHOOK_BLOG`, `WEBHOOK_NEWS`, `WEBHOOK_TICKET`, `WEBHOOK_FCNEWS`, `WEBHOOK_YOUTUBE`, `WEBHOOK_TIKTOK`, `WEBHOOK_X`, `WEBHOOK_INSTAGRAM` or `WEBHOOK_SCHEDULE`. `WEBHOOK_STATUS` is used only for the status board, and `WEBHOOK_PHOTOS` only for the photo feed. Anything without its own webhook uses `DISCORD_WEBHOOK_URL`.
 
 To use a different RSSHub instance without editing code, add a repository variable named `RSSHUB_BASE`.
 
@@ -129,6 +162,8 @@ state/seen.json              IDs already posted
 | Nothing is posted | Check the Actions log. A `FAILED` line shows the error. |
 | `0 blog posts found` (or news, ticket, fcnews) | The official site changed its layout and the parser needs updating. |
 | YouTube shows `404` in the log | YouTube's feed sometimes rejects GitHub's servers. SakuBot falls back to the official site's VIDEO page automatically, so posts still arrive. |
+| Photo embeds show an empty box | The official site is refusing to serve the images to Discord. Tell me and I can switch to uploading them as attachments, with the copyright caveats that come with that. |
+| Posts arrive without translations | The free translators are rate-limited or blocked. Check the `[translate]` lines in the log. Posts still go out in Japanese. |
 | TikTok, X or Instagram never post | They are off by default. The public RSSHub instance blocks most requests, and TikTok needs a headless browser to work at all. |
 | Posts stop after a long time | GitHub pauses scheduled workflows in inactive repos. SakuBot makes a small monthly commit to avoid this, but check the Actions tab occasionally. |
 
@@ -138,5 +173,7 @@ If an enabled source (other than those in `quiet_sources`) fails 12 runs in a ro
 
 - The member roster in `poll.py` (`ROSTER`) is used to read names from the schedule page. Update it when members join or graduate.
 - The schedule parser reads the page's text rather than a stable API, so a site redesign can break it.
+- Machine translation is approximate. Treat it as a hint, not a fan translation.
+- Previews are read from page text, so a site redesign can leave them empty. The post itself still goes out.
 - TikTok, X and Instagram have no official free feeds and depend on third-party bridges.
 - SakuBot posts titles, short excerpts, thumbnails and links back to the source. It does not republish full blog text.
