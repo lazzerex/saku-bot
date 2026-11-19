@@ -57,5 +57,6 @@
     "enabled": true,
     "max_photos": 8,
     "per_message": 4
-  }
+  },
+  "blog_preview_chars": 100
 }
