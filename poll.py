@@ -39,12 +39,22 @@ ROSTER = ["浅井恋乃未", "石森璃花", "稲熊ひな", "遠藤光莉", "�
           "中嶋優月", "藤吉夏鈴", "松田里奈", "松本和子", "的野美青", "向井純葉", "村井優", "村山美羽",
           "目黒陽色", "森田ひかる", "守屋麗奈", "山川宇衣", "山﨑天", "山下瞳月", "山田桃実", "増本綺良"]
 # Optional romaji aliases so config can use English names.
-ROMAJI = {"Matsuda Rina": "松田里奈", "Tamura Hono": "田村保乃", "Yamasaki Ten": "山﨑天",
-          "Morita Hikaru": "森田ひかる", "Fujiyoshi Karin": "藤吉夏鈴", "Ozono Rei": "大園玲",
-          "Onuma Akiho": "大沼晶保", "Moriya Rena": "守屋麗奈", "Endo Hikari": "遠藤光莉",
-          "Ishimori Rika": "石森璃花", "Katsumata Haru": "勝又春", "Odakura Reina": "小田倉麗奈",
-          "Kojima Nagisa": "小島凪紗", "Mukai Itoha": "向井純葉", "Murayama Miu": "村山美羽",
-          "Masumoto Kira": "増本綺良"}
+ROMAJI = {
+    "Matsuda Rina": "松田里奈",
+    # 2nd generation
+    "Endo Hikari": "遠藤光莉", "Ozono Rei": "大園玲", "Onuma Akiho": "大沼晶保",
+    "Kousaka Marino": "幸阪茉里乃", "Tamura Hono": "田村保乃", "Fujiyoshi Karin": "藤吉夏鈴",
+    "Morita Hikaru": "森田ひかる", "Moriya Rena": "守屋麗奈", "Yamasaki Ten": "山﨑天",
+    # 3rd generation
+    "Ishimori Rika": "石森璃花", "Endo Riko": "遠藤理子", "Odakura Reina": "小田倉麗奈",
+    "Kojima Nagisa": "小島凪紗", "Taniguchi Airi": "谷口愛季", "Nakashima Yuzuki": "中嶋優月",
+    "Matono Mio": "的野美青", "Mukai Itoha": "向井純葉", "Murai Yu": "村井優",
+    "Murayama Miu": "村山美羽", "Yamashita Shizuki": "山下瞳月",
+    # 4th generation
+    "Asai Konomi": "浅井恋乃未", "Inaguma Hina": "稲熊ひな", "Katsumata Haru": "勝又春",
+    "Sato Neo": "佐藤愛桜", "Nakagawa Chihiro": "中川智尋", "Matsumoto Wako": "松本和子",
+    "Meguro Hiiro": "目黒陽色", "Yamakawa Ui": "山川宇衣", "Yamada Momomi": "山田桃実",
+}
 
 
 def norm(s):
@@ -60,6 +70,13 @@ def resolve(name):
         if n in (norm(r), norm(k)):
             return k
     return name.strip()
+
+
+def display_name(name, state=None, romaji=None):
+    """Kanji name plus romaji when known: from the blog page, the cache in state, or the aliases above."""
+    r = romaji or ((state or {}).get("romaji", {})).get(norm(name))
+    r = r or next((rm for rm, kj in ROMAJI.items() if norm(kj) == norm(name)), None)
+    return f"{name} ({r})" if r else name
 
 
 def now():
@@ -206,7 +223,7 @@ def maybe_digest(state):
             todays.sort(key=lambda e: (e["time"] is not None, (e["time"] or "").zfill(5)))
             rows = []
             for e in todays:
-                who = f" — {', '.join(e['members'])}" if e["members"] else ""
+                who = f" — {', '.join(display_name(m, state) for m in e['members'])}" if e["members"] else ""
                 rows.append(f"`{e['time'] or '終日'}` [{e['cat']}] **{e['title']}**{who}")
             desc = "\n".join(rows)[:4000]
             send(url, None, {"title": f"📅 Today's schedule · {t.strftime('%m/%d')}", "description": desc,
@@ -500,7 +517,7 @@ def enrich_blog(i, state):
     soup = BeautifulSoup(get(i["url"]), "html.parser")
     key = norm(i["title_raw"] or "")
     h1 = next((h for h in soup.find_all("h1") if key and key in norm(h.get_text())), None) or soup.find("h1")
-    texts, img, ts, images = [], None, None, []
+    texts, img, ts, images, romaji = [], None, None, [], None
     for el in (h1.next_elements if h1 else []):
         if isinstance(el, Comment):
             continue
@@ -519,6 +536,8 @@ def enrich_blog(i, state):
             if s == "前へ":
                 break
             if not texts and re.match(r"^[A-Z][A-Z .'\-]+$", s):  # romaji name line under the title
+                parts = s.title().split()
+                romaji = " ".join(reversed(parts)) if len(parts) == 2 else s.title()  # family name first
                 continue
             texts.append(s)
         elif getattr(el, "name", None) == "img":
@@ -531,6 +550,13 @@ def enrich_blog(i, state):
     if texts:
         i["preview"] = " ".join(texts)[:PREVIEW]
     i["ts"] = ts or i["ts"]
+    if romaji and i.get("author"):
+        state.setdefault("romaji", {})[norm(i["author"])] = romaji
+    if i.get("author"):
+        i["romaji"] = romaji or state.get("romaji", {}).get(norm(i["author"]))
+        shown = display_name(i["author"], state, i["romaji"])
+        if shown != i["author"]:
+            i["title"] = f"{shown}: {i['title_raw']}"[:256]
     i["images"] = images
     if img:
         i["thumb"] = img
@@ -619,7 +645,7 @@ def send_photos(i):
             e = {"url": i["url"], "color": 0xF19DB5, "image": {"url": src}}
             if n == 0 and k == 0:
                 e["title"] = f"📷 {i.get('title_raw') or i['title']}"[:256]
-                e["author"] = {"name": i.get("author") or "Member blog"}
+                e["author"] = {"name": display_name(i["author"], romaji=i.get("romaji")) if i.get("author") else "Member blog"}
                 if i.get("icon"):
                     e["author"]["icon_url"] = i["icon"]
                 e["footer"] = {"text": f"SakuBot · {len(imgs)} photo(s)"}
