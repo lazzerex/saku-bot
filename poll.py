@@ -19,6 +19,7 @@ RSSHUB = (os.environ.get("RSSHUB_BASE") or CFG["rsshub_base"]).rstrip("/")
 TIMEOUT = 20
 KEEP = 300          # remembered ids per source
 WARN_AFTER = 12     # consecutive failed runs before a warning (~2h at 10 min)
+BLOG_PREVIEW = int(CFG.get("blog_preview_chars", 100))  # blog previews stay short
 RUN_BUDGET = int(CFG.get("run_budget_seconds", 240))  # stop posting after this; leftovers go out next run
 JST = dt.timezone(dt.timedelta(hours=9))
 
@@ -40,6 +41,7 @@ ROSTER = ["浅井恋乃未", "石森璃花", "稲熊ひな", "遠藤光莉", "�
           "目黒陽色", "森田ひかる", "守屋麗奈", "山川宇衣", "山﨑天", "山下瞳月", "山田桃実", "増本綺良"]
 # Optional romaji aliases so config can use English names.
 ROMAJI = {
+    # Matsuda Rina is kept on purpose; everyone else is a current member
     "Matsuda Rina": "松田里奈",
     # 2nd generation
     "Endo Hikari": "遠藤光莉", "Ozono Rei": "大園玲", "Onuma Akiho": "大沼晶保",
@@ -119,10 +121,10 @@ def fetch_blog():
         box = a.find_parent("li") or a
         img = box.find("img")
         out[m_id.group(1)] = item(
-            "blog", m_id.group(1), f"{name}: {title}", urljoin(BASE, a["href"]), name, 
-            urljoin(BASE, img["src"]) if img and img.get("src") else None,
-            author=name, desc=desc[:200], tag=m.group(1))
+            "blog", m_id.group(1), f"{name}: {title}", urljoin(BASE, a["href"]), name, None,
+            author=name, desc=desc[:BLOG_PREVIEW], tag=m.group(1))
         out[m_id.group(1)]["title_raw"] = title
+        out[m_id.group(1)]["icon"] = urljoin(BASE, img["src"]) if img and img.get("src") else None
     if not out:
         raise RuntimeError("0 blog posts found; page layout may have changed")
     return list(out.values())
@@ -394,13 +396,14 @@ def translate(text, tgt):
 
 
 def add_translations(i):
+    """Only the title is translated. Previews and details stay as they are."""
     if not TR.get("enabled") or i["source"] not in TR.get("sources", []):
         return
+    title = i.get("title_raw") or i["title"]
     for lg in TR.get("languages", ["en", "vi"]):
-        t = translate(i.get("title_raw") or i["title"], lg)
-        pv = translate(i["preview"], lg) if i.get("preview") else None
-        if t or pv:
-            i["tr"][lg] = (t, pv)
+        t = translate(title, lg)
+        if t:
+            i["tr"][lg] = (t, None)
 
 
 # ---- Detail pages: preview, member photo, ticket dates ----------------------
@@ -516,7 +519,16 @@ def member_photos(state, want):
 def enrich_blog(i, state):
     soup = BeautifulSoup(get(i["url"]), "html.parser")
     key = norm(i["title_raw"] or "")
-    h1 = next((h for h in soup.find_all("h1") if key and key in norm(h.get_text())), None) or soup.find("h1")
+
+    def same(h):
+        t = norm(h.get_text())
+        return bool(key and t and (key in t or t in key))
+
+    h1 = next((h for h in soup.find_all("h1") if same(h)), None)
+    if h1:  # the page heading is the real post title, even if the list text had the excerpt mixed in
+        i["title_raw"] = " ".join(h1.get_text().split())
+    else:
+        h1 = soup.find("h1")
     texts, img, ts, images, romaji = [], None, None, [], None
     for el in (h1.next_elements if h1 else []):
         if isinstance(el, Comment):
@@ -548,7 +560,8 @@ def enrich_blog(i, state):
                     images.append(full)
                 img = img or full
     if texts:
-        i["preview"] = " ".join(texts)[:PREVIEW]
+        full = " ".join(texts)
+        i["preview"] = full[:BLOG_PREVIEW].rstrip() + ("…" if len(full) > BLOG_PREVIEW else "")
     i["ts"] = ts or i["ts"]
     if romaji and i.get("author"):
         state.setdefault("romaji", {})[norm(i["author"])] = romaji
@@ -561,7 +574,7 @@ def enrich_blog(i, state):
     if img:
         i["thumb"] = img
     if i.get("author"):
-        i["icon"] = member_photos(state, norm(i["author"])).get(norm(i["author"]))
+        i["icon"] = member_photos(state, norm(i["author"])).get(norm(i["author"])) or i.get("icon")
 
 
 def enrich(i, state):
@@ -603,14 +616,14 @@ def build_embed(i):
     label = LABEL[i["source"]] + (f" · {i['tag']}" if i.get("tag") else "")
     e = {"title": (i["title"] or "New post")[:256], "url": i["url"], "color": 0xF19DB5,
          "author": {"name": label[:256]}}
-    if i.get("icon"):
+    if i.get("icon") and i["source"] != "blog":
         e["author"]["icon_url"] = i["icon"]
     if i.get("preview"):
         e["description"] = i["preview"][:1000]
     fields = []
     for lg, (t, pv) in i.get("tr", {}).items():
         val = "\n".join(x for x in (f"**{t}**" if t else None, pv) if x)
-        fields.append({"name": FLAG[lg], "value": val[:1024], "inline": False})
+        fields.append({"name": FLAG[lg], "value": val[:1024], "inline": pv is None})
     fields += [{"name": n[:256], "value": v[:1024], "inline": False} for n, v in i.get("fields", [])]
     size = len(e["title"]) + len(e.get("description", "")) + 100
     kept = []
@@ -621,7 +634,12 @@ def build_embed(i):
         kept.append(f)
     if kept:
         e["fields"] = kept
-    if i["thumb"]:
+    if i["source"] == "blog":  # member portrait top right, one blog photo underneath
+        if i.get("icon"):
+            e["thumbnail"] = {"url": i["icon"]}
+        if i.get("thumb"):
+            e["image"] = {"url": i["thumb"]}
+    elif i["thumb"]:
         e["image" if i["source"] in BIG_IMAGE else "thumbnail"] = {"url": i["thumb"]}
     e["footer"] = {"text": "SakuBot" + (" · auto-translated" if i.get("tr") else "")}
     e["timestamp"] = i.get("ts") or dt.datetime.now(dt.timezone.utc).isoformat()
