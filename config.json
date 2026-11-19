@@ -35,5 +35,27 @@
     "tiktok",
     "x",
     "instagram"
-  ]
+  ],
+  "preview_chars": 300,
+  "translate": {
+    "enabled": true,
+    "languages": [
+      "en",
+      "vi"
+    ],
+    "sources": [
+      "blog",
+      "news",
+      "ticket",
+      "fcnews",
+      "youtube"
+    ],
+    "max_chars": 400,
+    "max_calls_per_run": 24
+  },
+  "photos": {
+    "enabled": true,
+    "max_photos": 8,
+    "per_message": 4
+  }
 }
