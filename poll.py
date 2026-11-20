@@ -555,7 +555,7 @@ def enrich_blog(i, state):
     # On the detail page, the post title is specifically inside the blog article header (<h1 class="title"> or the <h1> right before the date/body).
     # If the member posted without a title, that <h1> exists on the page with empty text, whereas fetch_blog() fell back to the first body line.
     h1 = soup.select_one("h1.title") or soup.select_one(".box-ttl h1")
-    if not h1:
+    if not h1:F
         # Fallback: find the <h1> that is not the site logo ("櫻坂46公式サイト" / empty logo link)
         for cand in soup.find_all("h1"):
             if cand.find("img"):
@@ -747,7 +747,7 @@ def build_embed(i, attach=False):
             desc_parts.append(f"↩️ Last post: **{prev_date}** ({gap})")
 
         if desc_parts:
-            e["description"] = "\n\n".join(desc_parts)[:2000]
+            e["description"] = "\n".join(desc_parts)[:2000]
 
         # Compact translation fields with bold text for higher visual weight
         short_flag = {"en": "🇬🇧 EN", "vi": "🇻🇳 VI"}
