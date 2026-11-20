@@ -58,7 +58,7 @@
     "max_photos": 8,
     "per_message": 4
   },
-  "blog_preview_chars": 100,
+  "blog_preview_chars": 55,
   "blog_photos": {
     "mode": "upload",
     "max": 10,
