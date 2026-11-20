@@ -734,17 +734,23 @@ def build_embed(i, attach=False):
         # Clickable blog title (with untitled fallback)
         e["title"] = f"「{raw_title}」"[:256] if raw_title else "「無題」 (Untitled Post)"
 
-        # Spacious description: larger preview + separated date and last post lines
+        # Description: larger preview + subtle breathing room before the tightly-grouped metadata lines
         desc_parts = []
         if i.get("preview"):
             desc_parts.append(f"### > {i['preview']}")
 
+        meta_lines = []
         if i.get("ts"):
             dt_str = dt.datetime.fromisoformat(i["ts"]).strftime("%Y/%m/%d %H:%M JST")
-            desc_parts.append(f"🕒 **{dt_str}**")
+            meta_lines.append(f"🕒 **{dt_str}**")
         if i.get("prev"):
             prev_date, gap = i["prev"]
-            desc_parts.append(f"↩️ Last post: **{prev_date}** ({gap})")
+            meta_lines.append(f"↩️ Last post: **{prev_date}** ({gap})")
+
+        if meta_lines:
+            # Leading blank line (​) adds clean mobile spacing after the blockquote without separating the two metadata lines
+            prefix = "\u200b\n" if desc_parts else ""
+            desc_parts.append(prefix + "\n".join(meta_lines))
 
         if desc_parts:
             e["description"] = "\n".join(desc_parts)[:2000]
