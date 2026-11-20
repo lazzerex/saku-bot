@@ -412,6 +412,9 @@ def add_translations(i):
     """Only the title is translated. Previews and details stay as they are."""
     if not TR.get("enabled") or i["source"] not in TR.get("sources", []):
         return
+    # Skip translating if it's a blog post with no title
+    if i["source"] == "blog" and not (i.get("title_raw") or "").strip():
+        return
     title = i.get("title_raw") or i["title"]
     for lg in TR.get("languages", ["en", "vi"]):
         t = translate(title, lg)
@@ -548,17 +551,24 @@ def prev_blog(i):
 
 def enrich_blog(i, state):
     soup = BeautifulSoup(get(i["url"]), "html.parser")
-    key = norm(i["title_raw"] or "")
 
-    def same(h):
-        t = norm(h.get_text())
-        return bool(key and t and (key in t or t in key))
+    # On the detail page, the post title is specifically inside the blog article header (<h1 class="title"> or the <h1> right before the date/body).
+    # If the member posted without a title, that <h1> exists on the page with empty text, whereas fetch_blog() fell back to the first body line.
+    h1 = soup.select_one("h1.title") or soup.select_one(".box-ttl h1")
+    if not h1:
+        # Fallback: find the <h1> that is not the site logo ("櫻坂46公式サイト" / empty logo link)
+        for cand in soup.find_all("h1"):
+            if cand.find("img"):
+                continue
+            h1 = cand
+            break
 
-    h1 = next((h for h in soup.find_all("h1") if same(h)), None)
-    if h1:  # the page heading is the real post title, even if the list text had the excerpt mixed in
-        i["title_raw"] = " ".join(h1.get_text().split())
+    if h1 is not None:
+        raw_title = " ".join(h1.get_text().split())
+        i["title_raw"] = raw_title if raw_title else None
     else:
-        h1 = soup.find("h1")
+        i["title_raw"] = None
+
     texts, img, ts, images, romaji = [], None, None, [], None
     for el in (h1.next_elements if h1 else []):
         if isinstance(el, Comment):
@@ -606,8 +616,8 @@ def enrich_blog(i, state):
     if i.get("author"):
         i["romaji"] = romaji or state.get("romaji", {}).get(norm(i["author"]))
         shown = display_name(i["author"], state, i["romaji"])
-        if shown != i["author"]:
-            i["title"] = f"{shown}: {i['title_raw']}"[:256]
+        title_label = i["title_raw"] or "無題 (Untitled)"
+        i["title"] = f"{shown}: {title_label}"[:256]
     i["images"] = images
     if img:
         i["thumb"] = img
@@ -689,8 +699,9 @@ def prepare_photos(i):
 
 
 def send_post(url, content, embed, groups):
-    send(url, content, embed, files=groups[0] if groups else None)
-    for g in groups[1:]:  # extra photos that did not fit in the first message
+    # Send the notification board (embed) first so attached photos appear underneath it
+    send(url, content, embed)
+    for g in groups:
         time.sleep(1)
         send(url, None, files=g)
 
@@ -700,28 +711,70 @@ FLAG = {"en": "🇬🇧 English · Title", "vi": "🇻🇳 Tiếng Việt · Ti�
 
 def build_embed(i, attach=False):
     label = LABEL[i["source"]] + (f" · {i['tag']}" if i.get("tag") else "")
-    e = {"title": (i["title"] or "New post")[:256], "url": i["url"], "color": 0xF19DB5,
-         "author": {"name": label[:256]}}
+    e = {
+        "title": (i["title"] or "New post")[:256],
+        "url": i["url"],
+        "color": 0xF19DB5,
+        "author": {"name": label[:256]},
+    }
     if i.get("icon") and i["source"] != "blog":
         e["author"]["icon_url"] = i["icon"]
-    if i["source"] == "blog":
-        who = display_name(i["author"], romaji=i.get("romaji")) if i.get("author") else "A member"
-        e["title"] = f"🌸 {who} updated her blog."[:256]
-        lines = [f"💌 『{i.get('title_raw') or i['title']}』"]
-        if i.get("ts"):
-            lines.append("📅 " + dt.datetime.fromisoformat(i["ts"]).strftime("%Y/%m/%d %H:%M"))
-        if i.get("prev"):
-            lines.append(f"⏳ Her previous blog: {i['prev'][0]} ({i['prev'][1]})")
-        if i.get("preview"):
-            lines.append(f"> {i['preview']}")
-        e["description"] = "\n".join(lines)[:2000]
-    elif i.get("preview"):
-        e["description"] = i["preview"][:1000]
+
     fields = []
-    for lg, (t, pv) in i.get("tr", {}).items():
-        val = "\n".join(x for x in (f"**{t}**" if t else None, pv) if x)
-        fields.append({"name": FLAG[lg], "value": val[:1024], "inline": pv is None})
+
+    if i["source"] == "blog":
+        who = display_name(i["author"], romaji=i.get("romaji")) if i.get("author") else "Sakurazaka46 Member"
+        raw_title = (i.get("title_raw") or "").strip()
+
+        # Member name & sakura emoji at the top as the Author, with the large square portrait on the top-right
+        e["author"] = {"name": f"🌸 {who} • Blog Update"[:256]}
+        if i.get("icon"):
+            e["thumbnail"] = {"url": i["icon"]}
+
+        # Actual blog title as the clickable headline (with untitled fallback)
+        if raw_title:
+            e["title"] = f"「{raw_title}」"[:256]
+        else:
+            e["title"] = "「無題」 (Untitled Post)"
+
+        # Description: quoted preview words + compact metadata bar
+        desc_parts = []
+        if i.get("preview"):
+            desc_parts.append(f"> {i['preview']}")
+
+        meta = []
+        if i.get("ts"):
+            dt_str = dt.datetime.fromisoformat(i["ts"]).strftime("%Y/%m/%d %H:%M JST")
+            meta.append(f"🕒 **{dt_str}**")
+        if i.get("prev"):
+            prev_date, gap = i["prev"]
+            meta.append(f"↩️ Previous: `{prev_date}` ({gap})")
+        if meta:
+            desc_parts.append("\n" + "  |  ".join(meta))
+
+        if desc_parts:
+            e["description"] = "\n".join(desc_parts)[:2000]
+
+        # Translations (only populated when raw_title was non-empty)
+        for lg, (t, pv) in i.get("tr", {}).items():
+            if t:
+                fields.append({"name": FLAG[lg], "value": f"*{t}*"[:1024], "inline": True})
+
+        # Fallback image inside embed only when not uploading attached files below
+        if i.get("thumb") and not attach:
+            e["image"] = {"url": i["thumb"]}
+
+    else:
+        if i.get("preview"):
+            e["description"] = i["preview"][:1000]
+        for lg, (t, pv) in i.get("tr", {}).items():
+            val = "\n".join(x for x in (f"**{t}**" if t else None, pv) if x)
+            fields.append({"name": FLAG[lg], "value": val[:1024], "inline": pv is None})
+        if i["thumb"]:
+            e["image" if i["source"] in BIG_IMAGE else "thumbnail"] = {"url": i["thumb"]}
+
     fields += [{"name": n[:256], "value": v[:1024], "inline": False} for n, v in i.get("fields", [])]
+
     size = len(e["title"]) + len(e.get("description", "")) + 100
     kept = []
     for f in fields[:25]:
@@ -731,14 +784,15 @@ def build_embed(i, attach=False):
         kept.append(f)
     if kept:
         e["fields"] = kept
-    if i["source"] == "blog":  # member portrait top right, one blog photo underneath
-        if i.get("icon"):
-            e["thumbnail"] = {"url": i["icon"]}
-        if i.get("thumb") and not attach:  # with attached photos the gallery appears under the embed instead
-            e["image"] = {"url": i["thumb"]}
-    elif i["thumb"]:
-        e["image" if i["source"] in BIG_IMAGE else "thumbnail"] = {"url": i["thumb"]}
-    e["footer"] = {"text": "SakuBot" + (" · auto-translated" if i.get("tr") else "")}
+
+    photo_count = len(i.get("images") or [])
+    footer_bits = ["SakuBot"]
+    if i["source"] == "blog" and photo_count:
+        footer_bits.append(f"{photo_count} photo{'s' if photo_count != 1 else ''}")
+    if i.get("tr"):
+        footer_bits.append("auto-translated")
+
+    e["footer"] = {"text": " · ".join(footer_bits)}
     e["timestamp"] = i.get("ts") or dt.datetime.now(dt.timezone.utc).isoformat()
     return e
 
@@ -759,7 +813,8 @@ def send_photos(i):
         for k, src in enumerate(imgs[n:n + per]):
             e = {"url": i["url"], "color": 0xF19DB5, "image": {"url": src}}
             if n == 0 and k == 0:
-                e["title"] = f"📷 {i.get('title_raw') or i['title']}"[:256]
+                title_lbl = i.get("title_raw") or "無題 (Untitled)"
+                e["title"] = f"📷 {title_lbl}"[:256]
                 e["author"] = {"name": display_name(i["author"], romaji=i.get("romaji")) if i.get("author") else "Member blog"}
                 if i.get("icon"):
                     e["author"]["icon_url"] = i["icon"]
