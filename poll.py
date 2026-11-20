@@ -1,121 +1,4 @@
-import datetime as dt
-import json
-import os
-import re
-import sys
-import time
-from pathlib import Path
-from urllib.parse import urljoin
-
-import feedparser
-import requests
-from bs4 import BeautifulSoup, Comment, NavigableString
-
-ROOT = Path(__file__).parent
-CFG = json.loads((ROOT / "config.json").read_text("utf-8"))
-STATE_FILE = ROOT / "state" / "seen.json"
-BASE = "https://sakurazaka46.com"
-RSSHUB = (os.environ.get("RSSHUB_BASE") or CFG["rsshub_base"]).rstrip("/")
-TIMEOUT = 20
-KEEP = 300          # remembered ids per source
-WARN_AFTER = 12     # consecutive failed runs before a warning (~2h at 10 min)
-BLOG_PREVIEW = int(CFG.get("blog_preview_chars", 55))  # blog previews stay short
-RUN_BUDGET = int(CFG.get("run_budget_seconds", 240))  # stop posting after this; leftovers go out next run
-JST = dt.timezone(dt.timedelta(hours=9))
-
-S = requests.Session()
-S.headers["User-Agent"] = "Mozilla/5.0 (compatible; S46FeedBot/1.0)"
-
-LABEL = {"blog": "📝 Member blog", "news": "📰 Official news", "youtube": "▶️ YouTube",
-         "tiktok": "🎵 TikTok", "x": "𝕏 Post", "instagram": "📸 Instagram",
-         "ticket": "🎫 Ticket", "fcnews": "💗 Fan club"}
-BIG_IMAGE = {"youtube", "tiktok", "x", "instagram"}
-HUB = {"tiktok": ["/tiktok/user/@sakurazaka46.officialtk"],
-       "x": ["/twitter/user/sakurazaka46"],
-       "instagram": ["/instagram/user/sakurazaka46jp", "/instagram/user/sakurazaka46_info_official"]}
-
-# Roster as listed on the official site (blog/schedule pages). Update when it changes.
-ROSTER = ["浅井恋乃未", "石森璃花", "稲熊ひな", "遠藤光莉", "遠藤理子", "大園玲", "大沼晶保", "小田倉麗奈",
-          "勝又春", "小池美波", "幸阪茉里乃", "小島凪紗", "佐藤愛桜", "谷口愛季", "田村保乃", "中川智尋",
-          "中嶋優月", "藤吉夏鈴", "松田里奈", "松本和子", "的野美青", "向井純葉", "村井優", "村山美羽",
-          "目黒陽色", "森田ひかる", "守屋麗奈", "山川宇衣", "山﨑天", "山下瞳月", "山田桃実", "増本綺良"]
-# Optional romaji aliases so config can use English names.
-ROMAJI = {
-    # Matsuda Rina is kept on purpose; everyone else is a current member
-    "Matsuda Rina": "松田里奈",
-    # 2nd generation
-    "Endo Hikari": "遠藤光莉", "Ozono Rei": "大園玲", "Onuma Akiho": "大沼晶保",
-    "Kousaka Marino": "幸阪茉里乃", "Tamura Hono": "田村保乃", "Fujiyoshi Karin": "藤吉夏鈴",
-    "Morita Hikaru": "森田ひかる", "Moriya Rena": "守屋麗奈", "Yamasaki Ten": "山﨑天",
-    # 3rd generation
-    "Ishimori Rika": "石森璃花", "Endo Riko": "遠藤理子", "Odakura Reina": "小田倉麗奈",
-    "Kojima Nagisa": "小島凪紗", "Taniguchi Airi": "谷口愛季", "Nakashima Yuzuki": "中嶋優月",
-    "Matono Mio": "的野美青", "Mukai Itoha": "向井純葉", "Murai Yu": "村井優",
-    "Murayama Miu": "村山美羽", "Yamashita Shizuki": "山下瞳月",
-    # 4th generation
-    "Asai Konomi": "浅井恋乃未", "Inaguma Hina": "稲熊ひな", "Katsumata Haru": "勝又春",
-    "Sato Neo": "佐藤愛桜", "Nakagawa Chihiro": "中川智尋", "Matsumoto Wako": "松本和子",
-    "Meguro Hiiro": "目黒陽色", "Yamakawa Ui": "山川宇衣", "Yamada Momomi": "山田桃実",
-}
-
-
-def norm(s):
-    return s.replace("﨑", "崎").replace("\u3000", "").replace(" ", "").lower()
-
-
-KNOWN = {norm(n) for n in ROSTER}
-
-
-def resolve(name):
-    n = norm(name)
-    for r, k in ROMAJI.items():
-        if n in (norm(r), norm(k)):
-            return k
-    return name.strip()
-
-
-def display_name(name, state=None, romaji=None):
-    """Kanji name plus romaji when known: from the blog page, the cache in state, or the aliases above."""
-    r = romaji or ((state or {}).get("romaji", {})).get(norm(name))
-    r = r or next((rm for rm, kj in ROMAJI.items() if norm(kj) == norm(name)), None)
-    return f"{name} ({r})" if r else name
-
-
-def now():
-    return dt.datetime.now(JST)
-
-
-def get(url):
-    r = S.get(url, timeout=TIMEOUT)
-    r.raise_for_status()
-    return r.text
-
-
-def item(src, id_, title, url, text=None, thumb=None, author=None, desc=None, tag=None):
-    return {"source": src, "id": id_, "title": title[:256], "url": url, "text": text or title,
-            "thumb": thumb, "author": author, "desc": desc, "tag": tag,
-            "title_raw": None, "preview": desc, "fields": [], "icon": None, "ts": None, "tr": {}, "images": []}
-
-
-# ---- Official site ---------------------------------------------------------
-DATE_SLASH = re.compile(r"(\d{4}/\d{1,2}/\d{1,2})")
-NEWS_RE = re.compile(r"^(?P<cat>\S+)\s+(?P<date>\d{4}\.\d{2}\.\d{2})\s+(?P<title>.+)$", re.S)
-
-
-_CT = {}  # member name -> ct code, filled from the "メンバー別 ブログ" links on the blog list page
-
-
-def fmt_date(s):
-    y, m, d = (int(x) for x in s.split("/"))
-    return f"{y}/{m:02d}/{d:02d}"
-
-
-def fetch_blog():
-    soup = BeautifulSoup(get(BASE + CFG["site"]["blog"]), "html.parser")
-    for a in soup.select('a[href*="/diary/blog/list"][href*="ct="]'):
-        mc = re.search(r"[?&]ct=(\d+)", a["href"])
-        nm = " ".join(a.get_text().split())
-        if mc and nm:
+if mc and nm:
             _CT[norm(nm)] = mc.group(1)
     out = {}
     for a in soup.select('a[href*="/diary/detail/"]'):
@@ -734,29 +617,26 @@ def build_embed(i, attach=False):
         # Clickable blog title (with untitled fallback)
         e["title"] = f"「{raw_title}」"[:256] if raw_title else "「無題」 (Untitled Post)"
 
-        # Compact description: short quoted preview + clean single-line metadata
+        # Spacious description: larger preview + separated date and last post lines
         desc_parts = []
         if i.get("preview"):
-            desc_parts.append(f"> {i['preview']}")
+            desc_parts.append(f"### > {i['preview']}")
 
-        meta_lines = []
         if i.get("ts"):
             dt_str = dt.datetime.fromisoformat(i["ts"]).strftime("%Y/%m/%d %H:%M JST")
-            meta_lines.append(f"🕒 `{dt_str}`")
+            desc_parts.append(f"🕒 **{dt_str}**")
         if i.get("prev"):
             prev_date, gap = i["prev"]
-            meta_lines.append(f"↩️ Last post: `{prev_date}` ({gap})")
-        if meta_lines:
-            desc_parts.append("\n".join(meta_lines))
+            desc_parts.append(f"↩️ Last post: **{prev_date}** ({gap})")
 
         if desc_parts:
             e["description"] = "\n\n".join(desc_parts)[:2000]
 
-        # Compact translation fields (side-by-side on desktop, clean stack on mobile)
+        # Compact translation fields with bold text for higher visual weight
         short_flag = {"en": "🇬🇧 EN", "vi": "🇻🇳 VI"}
         for lg, (t, pv) in i.get("tr", {}).items():
             if t:
-                fields.append({"name": short_flag.get(lg, FLAG[lg]), "value": t[:1024], "inline": True})
+                fields.append({"name": short_flag.get(lg, FLAG[lg]), "value": f"**{t}**"[:1024], "inline": True})
 
         # Fallback image inside embed only when not uploading attached files below
         if i.get("thumb") and not attach:
