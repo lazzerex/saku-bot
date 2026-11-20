@@ -695,7 +695,7 @@ def send_post(url, content, embed, groups):
         send(url, None, files=g)
 
 
-FLAG = {"en": "🇬🇧 English", "vi": "🇻🇳 Tiếng Việt"}
+FLAG = {"en": "🇬🇧 English · Title", "vi": "🇻🇳 Tiếng Việt · Tiêu đề"}
 
 
 def build_embed(i, attach=False):
