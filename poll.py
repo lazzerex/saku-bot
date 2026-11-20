@@ -19,7 +19,7 @@ RSSHUB = (os.environ.get("RSSHUB_BASE") or CFG["rsshub_base"]).rstrip("/")
 TIMEOUT = 20
 KEEP = 300          # remembered ids per source
 WARN_AFTER = 12     # consecutive failed runs before a warning (~2h at 10 min)
-BLOG_PREVIEW = int(CFG.get("blog_preview_chars", 100))  # blog previews stay short
+BLOG_PREVIEW = int(CFG.get("blog_preview_chars", 55))  # blog previews stay short
 RUN_BUDGET = int(CFG.get("run_budget_seconds", 240))  # stop posting after this; leftovers go out next run
 JST = dt.timezone(dt.timedelta(hours=9))
 
@@ -726,39 +726,37 @@ def build_embed(i, attach=False):
         who = display_name(i["author"], romaji=i.get("romaji")) if i.get("author") else "Sakurazaka46 Member"
         raw_title = (i.get("title_raw") or "").strip()
 
-        # Member name & sakura emoji at the top as the Author, with the large square portrait on the top-right
+        # Full-width author header with portrait icon so title & name don't wrap awkwardly on mobile
         e["author"] = {"name": f"🌸 {who} • Blog Update"[:256]}
         if i.get("icon"):
-            e["thumbnail"] = {"url": i["icon"]}
+            e["author"]["icon_url"] = i["icon"]
 
-        # Actual blog title as the clickable headline (with untitled fallback)
-        if raw_title:
-            e["title"] = f"「{raw_title}」"[:256]
-        else:
-            e["title"] = "「無題」 (Untitled Post)"
+        # Clickable blog title (with untitled fallback)
+        e["title"] = f"「{raw_title}」"[:256] if raw_title else "「無題」 (Untitled Post)"
 
-        # Description: quoted preview words + compact metadata bar
+        # Compact description: short quoted preview + clean single-line metadata
         desc_parts = []
         if i.get("preview"):
             desc_parts.append(f"> {i['preview']}")
 
-        meta = []
+        meta_lines = []
         if i.get("ts"):
             dt_str = dt.datetime.fromisoformat(i["ts"]).strftime("%Y/%m/%d %H:%M JST")
-            meta.append(f"🕒 **{dt_str}**")
+            meta_lines.append(f"🕒 `{dt_str}`")
         if i.get("prev"):
             prev_date, gap = i["prev"]
-            meta.append(f"↩️ Previous: `{prev_date}` ({gap})")
-        if meta:
-            desc_parts.append("\n" + "  |  ".join(meta))
+            meta_lines.append(f"↩️ Last post: `{prev_date}` ({gap})")
+        if meta_lines:
+            desc_parts.append("\n".join(meta_lines))
 
         if desc_parts:
-            e["description"] = "\n".join(desc_parts)[:2000]
+            e["description"] = "\n\n".join(desc_parts)[:2000]
 
-        # Translations (only populated when raw_title was non-empty)
+        # Compact translation fields (side-by-side on desktop, clean stack on mobile)
+        short_flag = {"en": "🇬🇧 EN", "vi": "🇻🇳 VI"}
         for lg, (t, pv) in i.get("tr", {}).items():
             if t:
-                fields.append({"name": FLAG[lg], "value": f"*{t}*"[:1024], "inline": True})
+                fields.append({"name": short_flag.get(lg, FLAG[lg]), "value": t[:1024], "inline": True})
 
         # Fallback image inside embed only when not uploading attached files below
         if i.get("thumb") and not attach:
