@@ -98,12 +98,25 @@ def item(src, id_, title, url, text=None, thumb=None, author=None, desc=None, ta
 
 
 # ---- Official site ---------------------------------------------------------
-DATE_SLASH = re.compile(r"(\d{4}/\d{2}/\d{2})")
+DATE_SLASH = re.compile(r"(\d{4}/\d{1,2}/\d{1,2})")
 NEWS_RE = re.compile(r"^(?P<cat>\S+)\s+(?P<date>\d{4}\.\d{2}\.\d{2})\s+(?P<title>.+)$", re.S)
+
+
+_CT = {}  # member name -> ct code, filled from the "メンバー別 ブログ" links on the blog list page
+
+
+def fmt_date(s):
+    y, m, d = (int(x) for x in s.split("/"))
+    return f"{y}/{m:02d}/{d:02d}"
 
 
 def fetch_blog():
     soup = BeautifulSoup(get(BASE + CFG["site"]["blog"]), "html.parser")
+    for a in soup.select('a[href*="/diary/blog/list"][href*="ct="]'):
+        mc = re.search(r"[?&]ct=(\d+)", a["href"])
+        nm = " ".join(a.get_text().split())
+        if mc and nm:
+            _CT[norm(nm)] = mc.group(1)
     out = {}
     for a in soup.select('a[href*="/diary/detail/"]'):
         m_id = re.search(r"/diary/detail/(\d+)", a["href"])
@@ -122,7 +135,7 @@ def fetch_blog():
         img = box.find("img")
         out[m_id.group(1)] = item(
             "blog", m_id.group(1), f"{name}: {title}", urljoin(BASE, a["href"]), name, None,
-            author=name, desc=desc[:BLOG_PREVIEW], tag=m.group(1))
+            author=name, desc=desc[:BLOG_PREVIEW], tag=fmt_date(m.group(1)))
         out[m_id.group(1)]["title_raw"] = title
         out[m_id.group(1)]["icon"] = urljoin(BASE, img["src"]) if img and img.get("src") else None
     if not out:
@@ -516,6 +529,23 @@ def member_photos(state, want):
     return cache
 
 
+def prev_blog(i):
+    """Date of the member's blog before this one, read from her own blog list (newest first)."""
+    ct = _CT.get(norm(i.get("author") or ""))
+    if not ct:
+        return None
+    soup = BeautifulSoup(get(f"{BASE}/s/s46/diary/blog/list?ima=0000&ct={ct}"), "html.parser")
+    cur = int(i["id"])
+    for a in soup.select('a[href*="/diary/detail/"]'):
+        m_id = re.search(r"/diary/detail/(\d+)", a["href"])
+        flat = " ".join(a.get_text(" ", strip=True).split())
+        m = DATE_SLASH.search(flat)
+        if m_id and m and int(m_id.group(1)) < cur and norm(i["author"]) in norm(flat):
+            y, mo, d = (int(x) for x in m.group(1).split("/"))
+            return dt.date(y, mo, d)
+    return None
+
+
 def enrich_blog(i, state):
     soup = BeautifulSoup(get(i["url"]), "html.parser")
     key = norm(i["title_raw"] or "")
@@ -541,7 +571,7 @@ def enrich_blog(i, state):
             s = el.strip()
             if not s:
                 continue
-            m = re.match(r"^(\d{4})/(\d{2})/(\d{2}) (\d{2}):(\d{2})$", s)
+            m = re.match(r"^(\d{4})/(\d{1,2})/(\d{1,2}) (\d{1,2}):(\d{2})$", s)
             if m:
                 ts = dt.datetime(*map(int, m.groups()), tzinfo=JST).isoformat()
                 break
@@ -563,6 +593,14 @@ def enrich_blog(i, state):
         full = " ".join(texts)
         i["preview"] = full[:BLOG_PREVIEW].rstrip() + ("…" if len(full) > BLOG_PREVIEW else "")
     i["ts"] = ts or i["ts"]
+    try:
+        pd = prev_blog(i)
+        if pd:
+            cur = dt.datetime.fromisoformat(i["ts"]).date() if i["ts"] else now().date()
+            n = (cur - pd).days
+            i["prev"] = (pd.strftime("%Y/%m/%d"), "same day" if n <= 0 else f"{n} day{'s' if n != 1 else ''} earlier")
+    except Exception as ex:
+        print(f"[blog] previous blog lookup failed: {ex}")
     if romaji and i.get("author"):
         state.setdefault("romaji", {})[norm(i["author"])] = romaji
     if i.get("author"):
@@ -592,7 +630,7 @@ def webhook_for(src):
     return os.environ.get(f"WEBHOOK_{src.upper()}") or os.environ.get("DISCORD_WEBHOOK_URL")
 
 
-def send(url, content, embed=None, embeds=None):
+def send(url, content, embed=None, embeds=None, files=None):
     body = {"username": "SakuBot", "content": content or None,
             "allowed_mentions": {"parse": ["users", "roles"]}}
     if embeds:
@@ -600,7 +638,11 @@ def send(url, content, embed=None, embeds=None):
     elif embed:
         body["embeds"] = [embed]
     for _ in range(3):
-        r = S.post(url, json=body, timeout=TIMEOUT)
+        if files:  # files = [(name, bytes, mime), ...]
+            r = S.post(url, data={"payload_json": json.dumps(body)},
+                       files={f"files[{n}]": f for n, f in enumerate(files)}, timeout=60)
+        else:
+            r = S.post(url, json=body, timeout=TIMEOUT)
         if r.status_code == 429:
             time.sleep(float(r.json().get("retry_after", 2)) + 0.5)
             continue
@@ -609,16 +651,71 @@ def send(url, content, embed=None, embeds=None):
     raise RuntimeError("rate limited")
 
 
+# ---- Blog photos attached to the blog notification --------------------------
+BP = CFG.get("blog_photos", {})
+MIME = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp"}
+
+
+def download(url, n):
+    r = S.get(url, timeout=30, headers={"Referer": BASE + "/"})
+    r.raise_for_status()
+    ext = url.split("?")[0].rsplit(".", 1)[-1].lower()
+    ext = ext if ext in MIME else "jpg"
+    return (f"{n:02d}.{ext}", r.content, MIME[ext])
+
+
+def prepare_photos(i):
+    """Download the post's photos (upload mode) and split them into Discord-sized groups of at most 10 files."""
+    if BP.get("mode", "upload") != "upload" or not i.get("images"):
+        return []
+    limit = int(BP.get("max_mb_per_message", 9)) * 1024 * 1024
+    groups, cur, size = [], [], 0
+    for n, u in enumerate(i["images"][:int(BP.get("max", 10))], 1):
+        try:
+            f = download(u, n)
+        except Exception as ex:
+            print(f"[blog] photo {n} download failed: {ex}")
+            continue
+        if len(f[1]) > limit:
+            continue
+        if cur and (len(cur) >= 10 or size + len(f[1]) > limit):
+            groups.append(cur)
+            cur, size = [], 0
+        cur.append(f)
+        size += len(f[1])
+    if cur:
+        groups.append(cur)
+    return groups
+
+
+def send_post(url, content, embed, groups):
+    send(url, content, embed, files=groups[0] if groups else None)
+    for g in groups[1:]:  # extra photos that did not fit in the first message
+        time.sleep(1)
+        send(url, None, files=g)
+
+
 FLAG = {"en": "🇬🇧 English", "vi": "🇻🇳 Tiếng Việt"}
 
 
-def build_embed(i):
+def build_embed(i, attach=False):
     label = LABEL[i["source"]] + (f" · {i['tag']}" if i.get("tag") else "")
     e = {"title": (i["title"] or "New post")[:256], "url": i["url"], "color": 0xF19DB5,
          "author": {"name": label[:256]}}
     if i.get("icon") and i["source"] != "blog":
         e["author"]["icon_url"] = i["icon"]
-    if i.get("preview"):
+    if i["source"] == "blog":
+        who = display_name(i["author"], romaji=i.get("romaji")) if i.get("author") else "A member"
+        e["title"] = f"🌸 {who} updated her blog."[:256]
+        lines = [f"💌 『{i.get('title_raw') or i['title']}』"]
+        if i.get("ts"):
+            lines.append("📅 " + dt.datetime.fromisoformat(i["ts"]).strftime("%Y/%m/%d %H:%M"))
+        if i.get("prev"):
+            lines.append(f"⏳ Her previous blog: {i['prev'][0]} ({i['prev'][1]})")
+        if i.get("preview"):
+            lines.append(f"> {i['preview']}")
+        e["description"] = "\n".join(lines)[:2000]
+    elif i.get("preview"):
         e["description"] = i["preview"][:1000]
     fields = []
     for lg, (t, pv) in i.get("tr", {}).items():
@@ -637,7 +734,7 @@ def build_embed(i):
     if i["source"] == "blog":  # member portrait top right, one blog photo underneath
         if i.get("icon"):
             e["thumbnail"] = {"url": i["icon"]}
-        if i.get("thumb"):
+        if i.get("thumb") and not attach:  # with attached photos the gallery appears under the embed instead
             e["image"] = {"url": i["thumb"]}
     elif i["thumb"]:
         e["image" if i["source"] in BIG_IMAGE else "thumbnail"] = {"url": i["thumb"]}
@@ -762,7 +859,8 @@ def main():
             try:
                 enrich(i, state)
                 add_translations(i)
-                send(webhook_for(src), pings_for(i), build_embed(i))
+                groups = prepare_photos(i) if src == "blog" else []
+                send_post(webhook_for(src), pings_for(i), build_embed(i, attach=bool(groups)), groups)
                 added.append(i["id"])
                 posted += 1
                 time.sleep(1)
