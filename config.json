@@ -55,13 +55,13 @@
   },
   "photos": {
     "enabled": true,
-    "max_photos": 8,
+    "max_photos": 40,
     "per_message": 4
   },
   "blog_preview_chars": 55,
   "blog_photos": {
     "mode": "upload",
-    "max": 10,
+    "max": 40,
     "max_mb_per_message": 9
   }
 }
