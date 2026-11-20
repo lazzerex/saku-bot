@@ -47,7 +47,7 @@ New posts usually appear 10 to 20 minutes after they go up. GitHub's scheduler c
 
 Each post is a Discord embed. Besides the title and link it can include:
 
-- **Blog posts:** the member's name with romaji, her portrait in the corner, a short preview (100 characters by default, `blog_preview_chars`), the post time, and one photo from the post when there is one (linked, not downloaded).
+- **Blog posts:** "🌸 name (romaji) updated her blog", the post title, the post time, when her previous blog was (for example `2026/11/11 (5 days earlier)`), a short preview (100 characters by default, `blog_preview_chars`), her portrait in the corner, and the post's photos attached underneath as a gallery.
 - **News and ticket posts:** a longer preview (300 characters by default, `preview_chars`).
 - **Ticket and news details:** dates, venue, prices, application period, presale schedule, general sale and result announcement dates, when the page lists them. Dates and prices are reformatted rather than machine translated, e.g. `2026/12/15 (Tue) doors 17:30/start 19:00`.
 - **Translation:** English and Vietnamese versions of the title only (see below).
@@ -110,6 +110,7 @@ Edit `config.json` in the repository.
 | `blog_preview_chars` | Length of the blog preview. Default 100. |
 | `preview_chars` | Length of the news and ticket preview. Default 300. |
 | `photos` | `enabled`, `max_photos` and `per_message` for the photo feed. |
+| `blog_photos` | Photos in the blog notification. `mode` is `upload` (download the photos and attach them, up to `max` per post, 10 by default) or `link` (show only the first photo, linked). `max_mb_per_message` splits big posts into several messages. |
 | `translate` | `enabled`, `languages` (`en`, `vi`), `sources`, `max_chars` and `max_calls_per_run`. |
 | `youtube_handles` | YouTube channels to follow. |
 | `rsshub_base` | RSSHub instance used for TikTok, X and Instagram. |
@@ -164,6 +165,7 @@ state/seen.json              IDs already posted
 | Nothing is posted | Check the Actions log. A `FAILED` line shows the error. |
 | `0 blog posts found` (or news, ticket, fcnews) | The official site changed its layout and the parser needs updating. |
 | YouTube shows `404` in the log | YouTube's feed sometimes rejects GitHub's servers. SakuBot falls back to the official site's VIDEO page automatically, so posts still arrive. |
+| Blog photos are missing from the notification | In `upload` mode SakuBot downloads the photos itself. If the site refuses the download, the post falls back to a single linked photo. Check the `[blog] photo ... download failed` lines in the log. |
 | Photo embeds show an empty box | The official site is refusing to serve the images to Discord. Tell me and I can switch to uploading them as attachments, with the copyright caveats that come with that. |
 | Posts arrive without translations | The free translators are rate-limited or blocked. Check the `[translate]` lines in the log. Posts still go out in Japanese. |
 | TikTok, X or Instagram never post | They are off by default. The public RSSHub instance blocks most requests, and TikTok needs a headless browser to work at all. |
@@ -176,6 +178,7 @@ If an enabled source (other than those in `quiet_sources`) fails 12 runs in a ro
 - The member roster in `poll.py` (`ROSTER`) is used to read names from the schedule page. Update it when members join or graduate.
 - The schedule parser reads the page's text rather than a stable API, so a site redesign can break it.
 - Machine translation is approximate. Treat it as a hint, not a fan translation.
+- In `upload` mode the photos are copied to Discord, so they are stored there. Use `link` mode if you would rather only link to the official site.
 - Previews are read from page text, so a site redesign can leave them empty. The post itself still goes out.
 - TikTok, X and Instagram have no official free feeds and depend on third-party bridges.
 - SakuBot posts titles, short excerpts, thumbnails and links back to the source. It does not republish full blog text.
