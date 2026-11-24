@@ -49,6 +49,7 @@
   "佐藤愛桜": "Sato Neo",
   "勝又春": "Katsumata Haru",
   "向井純葉": "Mukai Itoha",
+  "山下瞳月": "Yamashita Shizuki",
   "山田桃実": "Yamada Momomi",
   "松本和子": "Matsumoto Wako",
   "松田里奈": "Matsuda Rina",
@@ -57,7 +58,8 @@
   "目黒陽色": "Meguro Hiiro",
   "石森璃花": "Ishimori Rika",
   "稲熊ひな": "Inaguma Hina",
-  "遠藤光莉": "Endo Hikari"
+  "遠藤光莉": "Endo Hikari",
+  "遠藤理子": "Endo Riko"
  },
  "seen": {
   "blog": [
@@ -107,7 +109,12 @@
    "71936",
    "71939",
    "71941",
-   "71942"
+   "71942",
+   "71938",
+   "71949",
+   "71940",
+   "71951",
+   "71952"
   ],
   "fcnews": [
    "F02491",
@@ -138,7 +145,8 @@
    "F02502",
    "F02503",
    "F02504",
-   "F02505"
+   "F02505",
+   "F02506"
   ],
   "news": [
    "E00705",
@@ -193,7 +201,8 @@
    "M02244",
    "M02239",
    "M02231",
-   "M02248"
+   "M02248",
+   "M02245"
   ],
   "ticket": [
    "16thSG_backslive",
@@ -253,7 +262,8 @@
    "yt:video:VSL_bcH-LI8",
    "yt:video:6Ee0RpXMO1c",
    "yt:video:2eU8J8TDjiM",
-   "yt:video:Z6xkP2OiumY"
+   "yt:video:Z6xkP2OiumY",
+   "yt:video:DjODNfYIUmw"
   ]
  },
  "yt_ids": {
