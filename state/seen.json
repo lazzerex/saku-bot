@@ -46,12 +46,14 @@
  "photos_day": "2026-11-19",
  "romaji": {
   "中川智尋": "Nakagawa Chihiro",
+  "佐藤愛桜": "Sato Neo",
   "勝又春": "Katsumata Haru",
   "向井純葉": "Mukai Itoha",
   "山田桃実": "Yamada Momomi",
   "松本和子": "Matsumoto Wako",
   "松田里奈": "Matsuda Rina",
   "浅井恋乃未": "Asai Konomi",
+  "的野美青": "Matono Mio",
   "目黒陽色": "Meguro Hiiro",
   "石森璃花": "Ishimori Rika",
   "稲熊ひな": "Inaguma Hina",
@@ -103,7 +105,9 @@
    "71930",
    "71931",
    "71936",
-   "71939"
+   "71939",
+   "71941",
+   "71942"
   ],
   "fcnews": [
    "F02491",
