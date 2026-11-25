@@ -44,7 +44,7 @@
       "vi"
     ],
     "sources": [
-      "blog",
+      "#blog",
       "news",
       "ticket",
       "fcnews",
