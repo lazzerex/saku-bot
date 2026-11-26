@@ -51,6 +51,7 @@
   "向井純葉": "Mukai Itoha",
   "山下瞳月": "Yamashita Shizuki",
   "山田桃実": "Yamada Momomi",
+  "幸阪茉里乃": "Kousaka Marino",
   "村井優": "Murai Yu",
   "松本和子": "Matsumoto Wako",
   "松田里奈": "Matsuda Rina",
@@ -117,7 +118,9 @@
    "71951",
    "71952",
    "71970",
-   "71971"
+   "71971",
+   "71977",
+   "71978"
   ],
   "fcnews": [
    "F02491",
@@ -208,7 +211,10 @@
    "M02248",
    "M02245",
    "M02246",
-   "M02249"
+   "M02249",
+   "M02243",
+   "G00248",
+   "G00249"
   ],
   "ticket": [
    "16thSG_backslive",
@@ -269,7 +275,8 @@
    "yt:video:6Ee0RpXMO1c",
    "yt:video:2eU8J8TDjiM",
    "yt:video:Z6xkP2OiumY",
-   "yt:video:DjODNfYIUmw"
+   "yt:video:DjODNfYIUmw",
+   "yt:video:S2Ha5TMZ554"
   ]
  },
  "yt_ids": {
