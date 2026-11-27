@@ -56,6 +56,7 @@
   "松本和子": "Matsumoto Wako",
   "松田里奈": "Matsuda Rina",
   "浅井恋乃未": "Asai Konomi",
+  "田村保乃": "Tamura Hono",
   "的野美青": "Matono Mio",
   "目黒陽色": "Meguro Hiiro",
   "石森璃花": "Ishimori Rika",
@@ -120,7 +121,9 @@
    "71970",
    "71971",
    "71977",
-   "71978"
+   "71978",
+   "71986",
+   "71987"
   ],
   "fcnews": [
    "F02491",
@@ -153,7 +156,9 @@
    "F02504",
    "F02505",
    "F02506",
-   "F02509"
+   "F02509",
+   "F02510",
+   "F02511"
   ],
   "news": [
    "E00705",
@@ -215,7 +220,10 @@
    "M02243",
    "G00248",
    "G00249",
-   "M02230"
+   "M02230",
+   "E00709",
+   "M02241",
+   "M02242"
   ],
   "ticket": [
    "16thSG_backslive",
@@ -277,7 +285,8 @@
    "yt:video:2eU8J8TDjiM",
    "yt:video:Z6xkP2OiumY",
    "yt:video:DjODNfYIUmw",
-   "yt:video:S2Ha5TMZ554"
+   "yt:video:S2Ha5TMZ554",
+   "yt:video:iqy9aHhjGm8"
   ]
  },
  "yt_ids": {
